@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [devとmainに分けるブランチ運用を導入する](sessions/2026/2026-10-21T143919Z-20261021t135229z-f63f9853.md) | current | ai-harness, git-workflow | 11 |
 | [公開に備えて実在の名前とゲーム名を伏せる](sessions/2026/2026-10-19T182741Z-d33b819a-e089-4059-8eb6-eb7120561ecb.md) | current | ai-harness, publish | 111 |
 | [作成者の仮定の前文から#44のmerge前の記述を外す](sessions/2026/2026-10-19T152314Z-team-building-requirements-adr0024-reference.md) | current | requirements, team-building | 1 |
 | [PR #44をmergeしたmainを取り込み、ADRの一覧と共有記憶の索引の競合を解消する](sessions/2026/2026-10-19T151525Z-team-building-requirements-merge-main.md) | current | requirements, team-building | 32 |
