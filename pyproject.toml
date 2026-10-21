@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kvk-team-builder"
+version = "0.1.0"
+description = "Constraint-based KvK team builder"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "ortools>=9.10,<10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis>=6.170,<7",
+    "mypy>=1.11,<2",
+    "PyYAML>=6.0,<7",
+    "pytest>=8.0,<9",
+    "ruff>=0.6,<1",
+]
+
+[project.scripts]
+kvk-team-builder = "kvk_team.interfaces.cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"kvk_team.team_building.adapters.persistence" = ["team_master.json"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests", "tools"]
+# web/は独立したブラウザ用補助ツールであり、品質ゲートの対象外とする（ADR 0013）。
+extend-exclude = ["web"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/kvk_team/team_building/domain/team.py" = ["E741"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+check_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["ortools.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

@@ -1,0 +1,84 @@
+name: 機能要望
+description: 新しい機能や既存機能の改善を提案します
+title: "[機能要望] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提案ありがとうございます。実現方法だけでなく、解決したい課題と期待する結果を記載してください。
+        TOKEN、個人情報、非公開URL、実運用の参加者情報などの秘密情報は記載しないでください。
+        本物のチームマスタ（集結主、代理集結主、役割、運用メモ）、本物の参加者一覧から作った出力、
+        ADR 0026で伏せたゲーム名とイベント名も記載しないでください。再現には`sample/`か架空の入力を使ってください。
+
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: 重複確認
+      description: 同じ要望が既に提案されていないか、openとclosedのIssueを検索してください。
+      options:
+        - label: 既存Issueを検索し、同じ内容がないことを確認しました
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 背景と課題
+      description: 誰が、どのような場面で、何に困っているかを記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: 期待する結果
+      description: 実現後の利用者向け動作や受け入れ条件を記載してください。
+      placeholder: |
+        - 利用者が○○できる
+        - 条件未達時は△△という警告が表示される
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: 希望する解決方法
+      description: 具体案があれば記載してください。実装方法が未定でも問題ありません。
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替案
+      description: 現在の回避策や、採用しなかった方法があれば記載してください。
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: 関係する領域
+      description: 該当する領域をすべて選択してください。
+      multiple: true
+      options:
+        - 入力・Parser
+        - チーム編成・Optimizer
+        - 検証・警告
+        - Markdown出力
+        - CLI
+        - Web UI
+        - 運用設定・データ管理
+        - 開発環境・文書
+        - その他
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 制約と関連情報
+      description: 互換性、運用上の制約、関連Issueや資料などがあれば記載してください。
+
+  - type: checkboxes
+    id: sensitive-data-check
+    attributes:
+      label: 秘密情報の確認
+      options:
+        - label: TOKEN、個人情報、非公開URL、実運用の参加者情報、本物のチームマスタ（集結主、代理集結主、役割、運用メモ）、本物の参加者一覧から作った出力、ADR 0026で伏せたゲーム名とイベント名を含んでいません
+          required: true

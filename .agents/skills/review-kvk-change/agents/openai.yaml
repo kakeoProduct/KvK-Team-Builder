@@ -1,0 +1,4 @@
+interface:
+  display_name: "KvK変更レビュー"
+  short_description: "KvK変更を複数の専門観点で検証して統合報告します"
+  default_prompt: "$review-kvk-change を使用して、現在のブランチをドメイン、アーキテクチャ、テスト、要件の観点でレビューしてください。"

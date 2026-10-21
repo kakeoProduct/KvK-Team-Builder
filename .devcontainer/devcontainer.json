@@ -1,0 +1,25 @@
+{
+  "name": "KvK Team Builder",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "python -m pip install -e \".[dev]\"",
+  "postStartCommand": "sudo /usr/local/bin/fix-workspace-owner",
+  "mounts": [
+    "source=kvk-vscode-extensions,target=/home/vscode/.vscode-server/extensions,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "OpenAI.chatgpt",
+        "anthropic.claude-code",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}

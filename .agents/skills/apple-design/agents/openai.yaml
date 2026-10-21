@@ -1,0 +1,4 @@
+interface:
+  display_name: "Apple流Web UI設計"
+  short_description: "流体的な操作とアクセシビリティを備えたUI設計を支援します"
+  default_prompt: "$apple-design を使用して、このWeb UIを設計・実装し、操作性とアクセシビリティを確認してください。"

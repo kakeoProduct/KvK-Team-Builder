@@ -1,0 +1,6 @@
+interface:
+  display_name: "Skill選択"
+  short_description: "依頼に合うRepository内のSkillを案内する"
+  default_prompt: "$choose-skillを使って、この依頼に適したSkillと作業経路を選んでください。"
+policy:
+  allow_implicit_invocation: false

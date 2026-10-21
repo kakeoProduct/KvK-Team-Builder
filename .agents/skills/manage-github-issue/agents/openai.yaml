@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Issue管理"
+  short_description: "GitHub Issueを安全に作成または完全削除します"
+  default_prompt: "$manage-github-issue を使用して、GitHub Issueを作成または安全に削除してください。"

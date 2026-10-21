@@ -1,0 +1,6 @@
+interface:
+  display_name: "実装"
+  short_description: "合意済みの仕様を完了条件まで実装する"
+  default_prompt: "$implementを使って、合意済みの仕様を完了条件まで実装してください。"
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Git保護ルール"
+  short_description: "危険なGitコマンドをCodex Hookで実行前に拒否する"
+  default_prompt: "$git-guardrails-codexを使って、このRepositoryへGit保護ルールを設定してください。"

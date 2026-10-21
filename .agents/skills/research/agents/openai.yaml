@@ -1,0 +1,4 @@
+interface:
+  display_name: "一次情報調査"
+  short_description: "一次情報で主張を判定し、出典と確認日を残す"
+  default_prompt: "$researchを使って、この問いを一次情報で調査し、判定表付きで報告してください。"

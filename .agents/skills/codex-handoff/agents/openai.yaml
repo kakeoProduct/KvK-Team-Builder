@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex引き継ぎ"
+  short_description: "現在の作業を新しいCodex Subagentへ引き継ぐ"
+  default_prompt: "$codex-handoffを使って、現在の作業を新しいCodex Subagentへ引き継いでください。"
+policy:
+  allow_implicit_invocation: false

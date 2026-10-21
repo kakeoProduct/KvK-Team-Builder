@@ -1,0 +1,235 @@
+---
+type: session
+id: 2026-08-11T073050Z-install-mattpocock-skills
+title: Matt Pocockの共有スキルを追加
+status: current
+created_at: '2026-08-11T07:30:50Z'
+base_commit: 70813cdb73cde69718188f8cc2224be818fb922e
+final_commit: 70813cdb73cde69718188f8cc2224be818fb922e
+tags:
+- ai-harness
+- skill
+related_paths:
+- .agents/skills/ask-matt/PHASE-BOUNDARIES.md
+- .agents/skills/ask-matt/SKILL.md
+- .agents/skills/ask-matt/agents/openai.yaml
+- .agents/skills/claude-handoff/SKILL.md
+- .agents/skills/claude-handoff/agents/openai.yaml
+- .agents/skills/code-review/SKILL.md
+- .agents/skills/code-review/agents/openai.yaml
+- .agents/skills/codebase-design/DEEPENING.md
+- .agents/skills/codebase-design/DESIGN-IT-TWICE.md
+- .agents/skills/codebase-design/SKILL.md
+- .agents/skills/codebase-design/agents/openai.yaml
+- .agents/skills/diagnosing-bugs/SKILL.md
+- .agents/skills/diagnosing-bugs/agents/openai.yaml
+- .agents/skills/diagnosing-bugs/scripts/hitl-loop.template.sh
+- .agents/skills/domain-modeling/ADR-FORMAT.md
+- .agents/skills/domain-modeling/CONTEXT-FORMAT.md
+- .agents/skills/domain-modeling/SKILL.md
+- .agents/skills/domain-modeling/agents/openai.yaml
+- .agents/skills/git-guardrails-claude-code/SKILL.md
+- .agents/skills/git-guardrails-claude-code/agents/openai.yaml
+- .agents/skills/git-guardrails-claude-code/scripts/block-dangerous-git.sh
+- .agents/skills/grill-me/SKILL.md
+- .agents/skills/grill-me/agents/openai.yaml
+- .agents/skills/grill-with-docs/SKILL.md
+- .agents/skills/grill-with-docs/agents/openai.yaml
+- .agents/skills/grilling/SKILL.md
+- .agents/skills/grilling/agents/openai.yaml
+- .agents/skills/handoff/SKILL.md
+- .agents/skills/handoff/agents/openai.yaml
+- .agents/skills/implement/SKILL.md
+- .agents/skills/implement/agents/openai.yaml
+- .agents/skills/improve-codebase-architecture/HTML-REPORT.md
+- .agents/skills/improve-codebase-architecture/SKILL.md
+- .agents/skills/improve-codebase-architecture/agents/openai.yaml
+- .agents/skills/loop-me/SKILL.md
+- .agents/skills/loop-me/agents/openai.yaml
+- .agents/skills/migrate-to-shoehorn/SKILL.md
+- .agents/skills/migrate-to-shoehorn/agents/openai.yaml
+- .agents/skills/prototype/LOGIC.md
+- .agents/skills/prototype/SKILL.md
+- .agents/skills/prototype/UI.md
+- .agents/skills/prototype/agents/openai.yaml
+- .agents/skills/research/SKILL.md
+- .agents/skills/research/agents/openai.yaml
+- .agents/skills/resolving-merge-conflicts/SKILL.md
+- .agents/skills/resolving-merge-conflicts/agents/openai.yaml
+- .agents/skills/scaffold-exercises/SKILL.md
+- .agents/skills/scaffold-exercises/agents/openai.yaml
+- .agents/skills/setup-matt-pocock-skills/SKILL.md
+- .agents/skills/setup-matt-pocock-skills/agents/openai.yaml
+- .agents/skills/setup-matt-pocock-skills/domain.md
+- .agents/skills/setup-matt-pocock-skills/issue-tracker-github.md
+- .agents/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md
+- .agents/skills/setup-matt-pocock-skills/issue-tracker-local.md
+- .agents/skills/setup-matt-pocock-skills/triage-labels.md
+- .agents/skills/setup-pre-commit/SKILL.md
+- .agents/skills/setup-pre-commit/agents/openai.yaml
+- .agents/skills/setup-ts-deep-modules/SKILL.md
+- .agents/skills/setup-ts-deep-modules/agents/openai.yaml
+- .agents/skills/setup-ts-deep-modules/dependency-cruiser.config.cjs
+- .agents/skills/tdd/SKILL.md
+- .agents/skills/tdd/agents/openai.yaml
+- .agents/skills/tdd/mocking.md
+- .agents/skills/tdd/tests.md
+- .agents/skills/teach/GLOSSARY-FORMAT.md
+- .agents/skills/teach/LEARNING-RECORD-FORMAT.md
+- .agents/skills/teach/MISSION-FORMAT.md
+- .agents/skills/teach/RESOURCES-FORMAT.md
+- .agents/skills/teach/SKILL.md
+- .agents/skills/teach/agents/openai.yaml
+- .agents/skills/to-questionnaire/SKILL.md
+- .agents/skills/to-questionnaire/agents/openai.yaml
+- .agents/skills/to-spec/SKILL.md
+- .agents/skills/to-spec/agents/openai.yaml
+- .agents/skills/to-tickets/SKILL.md
+- .agents/skills/to-tickets/agents/openai.yaml
+- .agents/skills/triage/AGENT-BRIEF.md
+- .agents/skills/triage/OUT-OF-SCOPE.md
+- .agents/skills/triage/SKILL.md
+- .agents/skills/triage/agents/openai.yaml
+- .agents/skills/wait-what/SKILL.md
+- .agents/skills/wait-what/agents/openai.yaml
+- .agents/skills/wayfinder/SKILL.md
+- .agents/skills/wayfinder/agents/openai.yaml
+- .agents/skills/wizard/SKILL.md
+- .agents/skills/wizard/agents/openai.yaml
+- .agents/skills/wizard/template.sh
+- .agents/skills/writing-beats/SKILL.md
+- .agents/skills/writing-beats/agents/openai.yaml
+- .agents/skills/writing-for-agents/SKILL-MECHANICS.md
+- .agents/skills/writing-for-agents/SKILL.md
+- .agents/skills/writing-for-agents/agents/openai.yaml
+- .agents/skills/writing-fragments/SKILL.md
+- .agents/skills/writing-fragments/agents/openai.yaml
+- .agents/skills/writing-shape/SKILL.md
+- .agents/skills/writing-shape/agents/openai.yaml
+- skills-lock.json
+- tests/test_ai_harness.py
+---
+
+# Matt Pocockの共有スキルを追加
+
+## 利用者の依頼
+
+mattpocock/skillsのスキル一式をnpx skillsで追加する
+
+## 実装結果
+
+35個の外部スキルとskills-lock.jsonを追加し、共有スキル検証をロック済み外部スキルへ対応させた
+
+## 重要な判断
+
+- プロジェクト固有スキルには既存の日本語・メタデータ規約を維持し、外部スキルは取得元とSHA-256形式を検証する
+
+## 検証
+
+- npx.cmd skills@latest add mattpocock/skills: 35個のスキル追加に成功
+- .venv\\Scripts\\python.exe tools\\check.py: Ruff、mypy、pytest 36件すべて成功
+
+## 未完了事項
+
+- 未完了なし
+
+## 正本への参照
+
+- `.agents/skills/ask-matt/PHASE-BOUNDARIES.md`
+- `.agents/skills/ask-matt/SKILL.md`
+- `.agents/skills/ask-matt/agents/openai.yaml`
+- `.agents/skills/claude-handoff/SKILL.md`
+- `.agents/skills/claude-handoff/agents/openai.yaml`
+- `.agents/skills/code-review/SKILL.md`
+- `.agents/skills/code-review/agents/openai.yaml`
+- `.agents/skills/codebase-design/DEEPENING.md`
+- `.agents/skills/codebase-design/DESIGN-IT-TWICE.md`
+- `.agents/skills/codebase-design/SKILL.md`
+- `.agents/skills/codebase-design/agents/openai.yaml`
+- `.agents/skills/diagnosing-bugs/SKILL.md`
+- `.agents/skills/diagnosing-bugs/agents/openai.yaml`
+- `.agents/skills/diagnosing-bugs/scripts/hitl-loop.template.sh`
+- `.agents/skills/domain-modeling/ADR-FORMAT.md`
+- `.agents/skills/domain-modeling/CONTEXT-FORMAT.md`
+- `.agents/skills/domain-modeling/SKILL.md`
+- `.agents/skills/domain-modeling/agents/openai.yaml`
+- `.agents/skills/git-guardrails-claude-code/SKILL.md`
+- `.agents/skills/git-guardrails-claude-code/agents/openai.yaml`
+- `.agents/skills/git-guardrails-claude-code/scripts/block-dangerous-git.sh`
+- `.agents/skills/grill-me/SKILL.md`
+- `.agents/skills/grill-me/agents/openai.yaml`
+- `.agents/skills/grill-with-docs/SKILL.md`
+- `.agents/skills/grill-with-docs/agents/openai.yaml`
+- `.agents/skills/grilling/SKILL.md`
+- `.agents/skills/grilling/agents/openai.yaml`
+- `.agents/skills/handoff/SKILL.md`
+- `.agents/skills/handoff/agents/openai.yaml`
+- `.agents/skills/implement/SKILL.md`
+- `.agents/skills/implement/agents/openai.yaml`
+- `.agents/skills/improve-codebase-architecture/HTML-REPORT.md`
+- `.agents/skills/improve-codebase-architecture/SKILL.md`
+- `.agents/skills/improve-codebase-architecture/agents/openai.yaml`
+- `.agents/skills/loop-me/SKILL.md`
+- `.agents/skills/loop-me/agents/openai.yaml`
+- `.agents/skills/migrate-to-shoehorn/SKILL.md`
+- `.agents/skills/migrate-to-shoehorn/agents/openai.yaml`
+- `.agents/skills/prototype/LOGIC.md`
+- `.agents/skills/prototype/SKILL.md`
+- `.agents/skills/prototype/UI.md`
+- `.agents/skills/prototype/agents/openai.yaml`
+- `.agents/skills/research/SKILL.md`
+- `.agents/skills/research/agents/openai.yaml`
+- `.agents/skills/resolving-merge-conflicts/SKILL.md`
+- `.agents/skills/resolving-merge-conflicts/agents/openai.yaml`
+- `.agents/skills/scaffold-exercises/SKILL.md`
+- `.agents/skills/scaffold-exercises/agents/openai.yaml`
+- `.agents/skills/setup-matt-pocock-skills/SKILL.md`
+- `.agents/skills/setup-matt-pocock-skills/agents/openai.yaml`
+- `.agents/skills/setup-matt-pocock-skills/domain.md`
+- `.agents/skills/setup-matt-pocock-skills/issue-tracker-github.md`
+- `.agents/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md`
+- `.agents/skills/setup-matt-pocock-skills/issue-tracker-local.md`
+- `.agents/skills/setup-matt-pocock-skills/triage-labels.md`
+- `.agents/skills/setup-pre-commit/SKILL.md`
+- `.agents/skills/setup-pre-commit/agents/openai.yaml`
+- `.agents/skills/setup-ts-deep-modules/SKILL.md`
+- `.agents/skills/setup-ts-deep-modules/agents/openai.yaml`
+- `.agents/skills/setup-ts-deep-modules/dependency-cruiser.config.cjs`
+- `.agents/skills/tdd/SKILL.md`
+- `.agents/skills/tdd/agents/openai.yaml`
+- `.agents/skills/tdd/mocking.md`
+- `.agents/skills/tdd/tests.md`
+- `.agents/skills/teach/GLOSSARY-FORMAT.md`
+- `.agents/skills/teach/LEARNING-RECORD-FORMAT.md`
+- `.agents/skills/teach/MISSION-FORMAT.md`
+- `.agents/skills/teach/RESOURCES-FORMAT.md`
+- `.agents/skills/teach/SKILL.md`
+- `.agents/skills/teach/agents/openai.yaml`
+- `.agents/skills/to-questionnaire/SKILL.md`
+- `.agents/skills/to-questionnaire/agents/openai.yaml`
+- `.agents/skills/to-spec/SKILL.md`
+- `.agents/skills/to-spec/agents/openai.yaml`
+- `.agents/skills/to-tickets/SKILL.md`
+- `.agents/skills/to-tickets/agents/openai.yaml`
+- `.agents/skills/triage/AGENT-BRIEF.md`
+- `.agents/skills/triage/OUT-OF-SCOPE.md`
+- `.agents/skills/triage/SKILL.md`
+- `.agents/skills/triage/agents/openai.yaml`
+- `.agents/skills/wait-what/SKILL.md`
+- `.agents/skills/wait-what/agents/openai.yaml`
+- `.agents/skills/wayfinder/SKILL.md`
+- `.agents/skills/wayfinder/agents/openai.yaml`
+- `.agents/skills/wizard/SKILL.md`
+- `.agents/skills/wizard/agents/openai.yaml`
+- `.agents/skills/wizard/template.sh`
+- `.agents/skills/writing-beats/SKILL.md`
+- `.agents/skills/writing-beats/agents/openai.yaml`
+- `.agents/skills/writing-for-agents/SKILL-MECHANICS.md`
+- `.agents/skills/writing-for-agents/SKILL.md`
+- `.agents/skills/writing-for-agents/agents/openai.yaml`
+- `.agents/skills/writing-fragments/SKILL.md`
+- `.agents/skills/writing-fragments/agents/openai.yaml`
+- `.agents/skills/writing-shape/SKILL.md`
+- `.agents/skills/writing-shape/agents/openai.yaml`
+- `skills-lock.json`
+- `tests/test_ai_harness.py`

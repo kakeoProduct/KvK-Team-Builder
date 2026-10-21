@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIハーネス変更"
+  short_description: "Skill、Review Agent、Hookの変更を正本から検証までそろえる"
+  default_prompt: "$change-ai-harnessを使って、このSkill、Review Agent、Hookの変更を一貫して行ってください。"

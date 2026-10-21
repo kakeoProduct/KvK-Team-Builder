@@ -1,0 +1,68 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.claude/skills/**)",
+      "Edit(.claude/agents/**)",
+      "Read(.env)",
+      "Read(.env.*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/block_dangerous_git.py",
+              "--ask-push"
+            ],
+            "statusMessage": "Gitコマンドの安全性を確認しています"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Monitor|Edit|Write|NotebookEdit|Agent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/enforce_read_only_agent.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/project_memory_hook.py",
+              "session-start"
+            ]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/project_memory_hook.py",
+              "stop"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "プロジェクト記憶管理"
+  short_description: "変更セッションの記憶と知識の昇格候補を安全に管理する"
+  default_prompt: "$maintain-project-memoryを使って、今回の変更を共有記憶へ記録してください。"

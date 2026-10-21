@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR作成"
+  short_description: "差分と検証結果から安全にGitHub PRを作成します"
+  default_prompt: "$create-github-pr を使用して、現在のブランチからGitHub Pull Requestを作成してください。"

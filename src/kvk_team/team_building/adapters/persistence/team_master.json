@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "event": {
+    "start_time": "21:00",
+    "end_time": "25:00",
+    "slot_minutes": 30
+  },
+  "strength_relations": [
+    {"stronger": "A", "weaker": "B", "operator": ">"},
+    {"stronger": "B", "weaker": "C", "operator": ">="}
+  ],
+  "teams": [
+    {
+      "label": "A",
+      "rally_leader": "山田",
+      "substitute_leaders": [],
+      "role": "役割A",
+      "minimum_members": 8,
+      "maximum_members": 8,
+      "vc_required": true,
+      "notes": []
+    },
+    {
+      "label": "B",
+      "rally_leader": "さくら",
+      "substitute_leaders": [],
+      "role": "役割B",
+      "minimum_members": 8,
+      "maximum_members": 8,
+      "vc_required": true,
+      "notes": []
+    },
+    {
+      "label": "C",
+      "rally_leader": "taro",
+      "substitute_leaders": [],
+      "role": "役割C",
+      "minimum_members": 8,
+      "maximum_members": 8,
+      "vc_required": true,
+      "notes": []
+    },
+    {
+      "label": "D",
+      "rally_leader": "わんこ",
+      "substitute_leaders": [],
+      "role": "役割D",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "E",
+      "rally_leader": "もーもー",
+      "substitute_leaders": [],
+      "role": "役割E",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": ["運用メモの例"]
+    },
+    {
+      "label": "F",
+      "rally_leader": "いろは",
+      "substitute_leaders": [],
+      "role": "役割F",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "G",
+      "rally_leader": "ハルカ",
+      "substitute_leaders": [],
+      "role": "役割G",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "H",
+      "rally_leader": "mt",
+      "substitute_leaders": ["らいおん"],
+      "role": "役割H",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "I",
+      "rally_leader": "もも",
+      "substitute_leaders": [],
+      "role": "役割I",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "J",
+      "rally_leader": "ミカン",
+      "substitute_leaders": [],
+      "role": "役割J",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    },
+    {
+      "label": "K",
+      "rally_leader": "翡翠",
+      "substitute_leaders": [],
+      "role": "役割K",
+      "minimum_members": 8,
+      "maximum_members": 9,
+      "vc_required": false,
+      "notes": []
+    }
+  ]
+}

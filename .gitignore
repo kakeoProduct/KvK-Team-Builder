@@ -1,0 +1,231 @@
+# バイトコンパイル済み／最適化済み／DLLファイル
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C拡張
+*.so
+
+# 配布／パッケージング
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#   通常これらのファイルは、日付などの情報を注入するため、PyInstallerが
+#   実行ファイルをビルドする前にテンプレートからPythonスクリプトで生成される。
+*.manifest
+*.spec
+
+# Installerログ
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 単体テスト／カバレッジレポート
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# 翻訳ファイル
+*.mo
+*.pot
+
+# Django関連
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask関連
+instance/
+.webassets-cache
+
+# Scrapy関連
+.scrapy
+
+# Sphinxドキュメント
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   ライブラリやパッケージを複数環境で実行する場合は、これらのファイルを
+#   除外することがある。それ以外の場合は管理対象に含める。
+# .python-version
+
+# pipenv
+#   pypa/pipenv#598ではPipfile.lockをバージョン管理へ含めることを推奨している。
+#   ただし共同開発でプラットフォーム固有、またはクロスプラットフォーム非対応の
+#   依存関係がある場合、pipenvが動作しない依存関係を導入したり、必要な依存関係を
+#   すべて導入できなかったりする可能性がある。
+# Pipfile.lock
+
+# UV
+#   Pipfile.lockと同様に、通常はuv.lockをバージョン管理へ含めることを推奨する。
+#   再現性確保のためバイナリパッケージでは特に推奨されるが、ライブラリでは
+#   除外されることが多い。
+# uv.lock
+
+# poetry
+#   Pipfile.lockと同様に、通常はpoetry.lockをバージョン管理へ含めることを推奨する。
+#   再現性確保のためバイナリパッケージでは特に推奨されるが、ライブラリでは
+#   除外されることが多い。
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+# poetry.lock
+# poetry.toml
+
+# pdm
+#   Pipfile.lockと同様に、通常はpdm.lockをバージョン管理へ含めることを推奨する。
+#   pdmではプロジェクト全体の設定をpdm.tomlへ含め、.pdm-pythonは除外することを
+#   推奨している。
+#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
+# pdm.lock
+# pdm.toml
+.pdm-python
+.pdm-build/
+
+# pixi
+#   Pipfile.lockと同様に、通常はpixi.lockをバージョン管理へ含めることを推奨する。
+# pixi.lock
+#   Pixiはvenvが.venvへ作成する場合と同様に、.pixiへ仮想環境を作成する。
+#   このディレクトリはバージョン管理へ含めないことを推奨する。
+.pixi
+
+# PEP 582。github.com/David-OConnor/pyflowやgithub.com/pdm-project/pdmなどで使用
+__pypackages__/
+
+# Celery関連
+celerybeat-schedule
+celerybeat.pid
+
+# Redis
+*.rdb
+*.aof
+*.pid
+
+# RabbitMQ
+mnesia/
+rabbitmq/
+rabbitmq-data/
+
+# ActiveMQ
+activemq-data/
+
+# SageMath解析済みファイル
+*.sage.py
+
+# 環境ファイル
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyderプロジェクト設定
+.spyderproject
+.spyproject
+
+# Ropeプロジェクト設定
+.ropeproject
+
+# mkdocsドキュメント
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre型チェッカー
+.pyre/
+
+# pytype静的型解析
+.pytype/
+
+# Cythonデバッグシンボル
+cython_debug/
+
+# PyCharm
+#   JetBrains固有のテンプレートは、次のJetBrains.gitignoreで個別に管理されている。
+#   https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#   グローバルgitignoreへの追加、またはこのファイルへの統合が可能。非推奨だが、
+#   次の行を有効にするとideaディレクトリ全体を除外できる。
+# .idea/
+
+# Abstra
+#   AbstraはAIを利用したプロセス自動化フレームワーク。
+#   ユーザー認証情報、ローカル状態、設定を含むディレクトリを除外する。
+#   詳細: https://abstra.io/docs
+.abstra/
+
+# Visual Studio Code
+#   Visual Studio Code固有のテンプレートは、次のVisualStudioCode.gitignoreで
+#   個別に管理されている。
+#   https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
+#   グローバルgitignoreへの追加、またはこのファイルへの統合が可能。
+#   次の行を有効にするとvscodeディレクトリ全体を除外できる。
+# .vscode/
+# コードの部分実行に使用する一時ファイル
+tempCodeRunnerFile.py
+
+# ローカルの参加者入力と生成したチーム出力
+/tmp/
+
+# Ruff関連
+.ruff_cache/
+
+# PyPI設定ファイル
+.pypirc
+
+# Marimo
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Claude Codeの利用者ローカル設定
+.claude/settings.local.json
+.claude/launch.json
+
+# 並行Session用のworktree（Codexは.worktrees/、Claude Codeは.claude/worktrees/）
+.worktrees/
+.claude/worktrees/

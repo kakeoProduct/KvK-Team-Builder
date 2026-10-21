@@ -1,0 +1,4 @@
+interface:
+  display_name: "KvKルール変更"
+  short_description: "KvK制約変更を仕様・実装・テストへ安全に反映します"
+  default_prompt: "$change-kvk-rules を使用して、このKvK編成ルールの変更を安全に実装してください。"

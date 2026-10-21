@@ -1,0 +1,98 @@
+name: 不具合報告
+description: 再現可能な不具合や期待と異なる動作を報告します
+title: "[不具合] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。調査に必要な情報を、分かる範囲で記載してください。
+        TOKEN、個人情報、非公開URL、実運用の参加者情報などの秘密情報は記載しないでください。
+        本物のチームマスタ（集結主、代理集結主、役割、運用メモ）、本物の参加者一覧から作った出力、
+        ADR 0026で伏せたゲーム名とイベント名も記載しないでください。再現には`sample/`か架空の入力を使ってください。
+
+  - type: checkboxes
+    id: duplicate-check
+    attributes:
+      label: 重複確認
+      description: 同じ不具合が既に報告されていないか、openとclosedのIssueを検索してください。
+      options:
+        - label: 既存Issueを検索し、同じ内容がないことを確認しました
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 不具合の概要
+      description: 何が問題なのかを簡潔に説明してください。
+      placeholder: 例：参加者Markdownを読み込むと、特定の時間帯でエラーになる
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順
+      description: 不具合を再現できる最小限の手順を番号付きで記載してください。
+      placeholder: |
+        1. 次の形式の入力を用意する
+        2. `python -m kvk_team.interfaces.cli <入力> <出力>`を実行する
+        3. 表示された結果を確認する
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: 期待する動作
+      description: 本来どのような結果になるべきかを記載してください。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: 実際の動作
+      description: 実際に表示された結果やエラーを記載してください。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 実行環境
+      description: 不具合を確認した主な環境を選択してください。
+      options:
+        - GitHub Codespaces
+        - Windows 11
+        - Linux
+        - その他
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Pythonバージョン
+      description: 分かる場合は`python --version`の結果を記載してください。
+      placeholder: Python 3.12.1
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 関連するログ
+      description: 秘密情報を除去した、調査に必要な範囲のログだけを貼り付けてください。
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 補足情報
+      description: 関連Issue、画面、設定の項目名、回避策などがあれば記載してください。本物のチームマスタの内容は貼らないでください。
+
+  - type: checkboxes
+    id: sensitive-data-check
+    attributes:
+      label: 秘密情報の確認
+      options:
+        - label: TOKEN、個人情報、非公開URL、実運用の参加者情報、本物のチームマスタ（集結主、代理集結主、役割、運用メモ）、本物の参加者一覧から作った出力、ADR 0026で伏せたゲーム名とイベント名を含んでいません
+          required: true

@@ -1,0 +1,10 @@
+# 開発ホストにかかわらず、Repositoryで管理するテキストはLFとして扱う。
+* text=auto eol=lf
+
+# 運用で扱う可能性があるバイナリ形式は改行変換の対象外にする。
+*.xlsx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
