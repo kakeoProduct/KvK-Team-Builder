@@ -264,6 +264,22 @@ ADR、Domain Model、Review Agentへ反映します。`$review-kvk-change`の自
 `$review-kvk-change`の「振り返る」の手順（ADR 0024）に従い、この承認の例外とします。昇格後は昇格先を正本とし、元の記憶は来歴として
 残します。会話全文、秘密情報、個人情報、長いTool出力は共有記憶へ保存しません。
 
+## ブランチ運用
+
+`main`はリリース済みの版、`dev`は次のリリースへ向けた統合branchです（ADR 0027）。
+
+- 作業branchは`dev`から作り、`dev`へのPull Requestで取り込む。手元の`dev`は古いことがあるため、
+  `git fetch origin dev`の後に`origin/dev`から作る
+- `main`へ取り込むのは`dev`からのPull Requestだけとし、merge commitで取り込む。squashやrebaseで
+  取り込まない
+- 緊急の修正も`dev`を経由する。急ぐ場合は`dev`へ取り込んだ直後にリリースPull Requestを作る
+- `main`と`dev`へ直接コミットまたはpushしない。ただし、導入時に`main`から`dev`を作る最初の通常pushだけを
+  例外とする
+- 各Skillの「基準ブランチ」はPull Requestのbaseを指し、作業branchでは`dev`、リリースPull Requestでは
+  `main`になる
+- リリースPull Requestのレビューは毎回初回のレビューとして扱い、保存ファイルにある前回のリリースの指摘、
+  見送り、振り返りの回数を引き継がない
+
 ## 完了条件
 
 変更は次をすべて満たしたときだけ完了です。

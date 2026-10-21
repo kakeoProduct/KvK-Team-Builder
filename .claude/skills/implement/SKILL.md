@@ -14,10 +14,16 @@ disable-model-invocation: true
 ## 開始する
 
 1. `$maintain-project-memory`の手順で開始状態を保存する。Claude CodeでHookが保存済みと
-   Contextに示されている場合は、そのsession_idを使い、startを再実行しない。
+   Contextに示されている場合は、そのsession_idを使い、startを再実行しない。手順2で分岐元を移った
+   場合だけは、手順2に従って開始状態を取り直す。
 2. `start`の出力で`use_separate_worktree`が`true`、またはHookのContextが別Sessionの使用中を
    示す場合は、編集前に下の「Session用worktreeへ移る」に従う。`false`なら現在の作業ツリーで
-   進める。
+   進める。現在のbranchが`main`か`dev`なら、作業branchを`dev`から作る規則（`AGENTS.md`のブランチ運用、
+   ADR 0027）に従い、編集前に`git fetch origin dev`の後、`git switch --no-track -c <branch名> origin/dev`
+   で作業branchへ移る（`--no-track`がないとupstreamが`origin/dev`になる）。branch名には`AGENTS.md`の
+   伏せる語の規則（ADR 0026）に当たる語を使わない。未コミットの変更があるか、`git fetch origin dev`が
+   失敗するか、`origin/dev`がなければ、移らずに利用者へ確認する。移った後は、開始状態のHEADが分岐元と
+   違うため、同じsession_idで`discard`と`start`をやり直す。
 3. 指摘へ対応する作業では、ほかの指摘より先に、前回のレビュー結果の振り返りにある項目の案を、
    `$review-kvk-change`の自己点検リスト（`references/self-check.md`）へ反映して同期する
    （`$review-kvk-change`の「振り返る」）。自己点検リストがないブランチで繰り返しが続いている
@@ -39,16 +45,19 @@ disable-model-invocation: true
 
 1. 現在の作業ツリーの開始状態を`discard --session-id <session_id>`で破棄する。別Sessionの差分を
    自分の記憶として記録しないため、`finish`は使わない。
-2. 現在のHEADから作る。branch名、worktree名、コミットメッセージには、`AGENTS.md`の伏せる語の規則
-   （ADR 0026）に当たる語を使わない。Claude Codeでは`CLAUDE.md`の読み替えに従う。それ以外では
-   次を実行し、以後の作業Directoryを移す。
+2. 現在のHEADから作る。現在が`main`か`dev`の場合は、作業branchを`dev`から作る規則（`AGENTS.md`の
+   ブランチ運用、ADR 0027）に従い、先に`git fetch origin dev`を実行し、下のコマンドの末尾の`HEAD`を
+   `origin/dev`に替える。fetchが失敗するか`origin/dev`がなければ、作らずに利用者へ確認する。branch名、worktree名、
+   コミットメッセージには、`AGENTS.md`の伏せる語の規則（ADR 0026）に当たる語を使わない。Claude Codeでは
+   `CLAUDE.md`の読み替えに従う。それ以外では次を実行し、以後の作業Directoryを移す。`--no-track`は、
+   `origin/dev`から作ったbranchのupstreamが`origin/dev`にならないようにする。
 
    ```text
-   git worktree add -b <branch名> .worktrees/<作業の短い英語名> HEAD
+   git worktree add --no-track -b <branch名> .worktrees/<作業の短い英語名> HEAD
    ```
 
-3. 移動先で`git status --short`と`git log -1 --oneline`を確認し、元と同じコミットから始まる
-   ことを確かめる。元の作業ツリーにある未コミットの変更は引き継がれない。必要なら利用者へ確認する。
+3. 移動先で`git status --short`と`git log -1 --oneline`を確認し、手順2で選んだコミットから
+   始まることを確かめる。元の作業ツリーにある未コミットの変更は引き継がれない。必要なら利用者へ確認する。
 4. 移動先で`$maintain-project-memory`の`start`を実行する。Claude Codeでは同じsession_idを渡す。
 5. 以後の編集、テスト、`python tools/check.py`、`finish`はすべて移動先で行う。
 

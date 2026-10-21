@@ -37,25 +37,36 @@ description: 現在のGitブランチと基準ブランチとの差分、Pull Re
 ## Pull Requestの対象を検証する
 
 1. `git status --short --branch`、`git branch --show-current`、`git remote -v`を確認する。
-2. 利用者指定のbaseを優先し、未指定ならRepositoryの既定branchを取得する。detached HEAD、
+2. baseを決める（`AGENTS.md`のブランチ運用、ADR 0027）。利用者指定のbaseを優先するが、`dev`以外の
+   branchから`main`へのPull Requestと、`main`をheadにしたPull Requestは、利用者が指定しても作らず、
+   理由を報告する。baseを省略した場合、作業branchでは`dev`、`dev`では`main`とする。
+   `git fetch origin <base>`が失敗する場合（`origin`にbaseがない場合を含む）、detached HEAD、
    base branch上、未コミット変更あり、baseとの差分なしの場合は作成を止める。
-3. 比較対象を`<base>...HEAD`へ固定し、commit一覧、`git diff --stat`、
-   `git diff --name-status`を収集する。作業ツリーの未コミット差分を本文へ混ぜない。
+3. 手元のbranchは古いことがあるため、`origin/<base>`と比べる。コミット一覧は`origin/<base>..HEAD`、
+   差分は`origin/<base>...HEAD`で収集し（`git diff --stat`、`git diff --name-status`）、`main`にだけある
+   過去のリリースのmerge commitを一覧へ混ぜない。作業ツリーの未コミット差分を本文へ混ぜない。
+   headが`dev`の場合（リリースPull Request）は、`git fetch origin dev`の後、`HEAD`と`origin/dev`が
+   同じコミットであることを確かめ、違えば止める。手元の`dev`が遅れているだけなら
+   `git merge --ff-only origin/dev`でそろえてよいか利用者へ確認し、進んでいれば`dev`への直接コミット
+   として報告する。
 4. `gh pr list --state open --head <branch> --json number,title,url`で既存のopen Pull Requestを
    検索する。存在する場合は新規作成せずURLを返す。更新は利用者が明示的に依頼した場合だけ
    別操作として行う。
-5. pushの前に、branch名と`<base>...HEAD`のコミットメッセージが`AGENTS.md`の伏せる語の規則
+5. pushの前に、branch名と`origin/<base>..HEAD`のコミットメッセージが`AGENTS.md`の伏せる語の規則
    （ADR 0026）に当たらないことを確かめる。コミットの内容が規則に当たらないよう、HEADで
    `python -m pytest tests/test_repository_scope.py tests/test_team_master_repository.py -k "hidden_words or placeholder"`
    が成功していることも確かめる（伏せる語の検査と、同梱のチームマスタが例のままである検査）。
    一度pushすると消せないため、当たる場合や伏せる語の検査が失敗した場合は、Draftでもpushせず、
    利用者へbranch名の変更やコミットの修正を提案する。品質ゲート全体（`python tools/check.py`）の成功は、
    従来どおりReadyの条件とする。この検査はHEADの内容だけを見る。途中のコミットで加えて後で消した語も
-   pushで公開されるため、`<base>...HEAD`の各コミットの差分を目で確かめる（機械の検査はADR 0026の
+   pushで公開されるため、`origin/<base>..HEAD`の各コミットの差分を目で確かめる（機械の検査はADR 0026の
    見送り）。すでにpushしたbranchやコミットが当たる場合は、Pull Requestを作らずに利用者へ報告する。
-6. upstreamがなければ、Pull Request作成が明示されている場合だけ現在branchを
+6. upstreamが`origin/<branch>`でなければ、upstreamがないものとして扱う（`origin/dev`から作った
+   branchが`origin/dev`を追跡している場合を含む）。upstreamがなければ、Pull Request作成が明示されている
+   場合だけ現在branchを
    `git push --set-upstream origin <branch>`でpushする。baseや別branchをpushせず、
-   `--force`と`--force-with-lease`を使用しない。
+   `--force`と`--force-with-lease`を使用しない。headが`dev`の場合はpushせず、手順3で確かめた
+   `origin/dev`をそのまま使う。
 
 ## タイトルと本文を作る
 

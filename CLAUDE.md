@@ -19,11 +19,19 @@
 - `codex-handoff`と`git-guardrails-codex`はCodex専用のため、Claude Codeへ同期しない
 - `.claude/settings.json`のHookがGit保護と共有記憶の開始・記録漏れ確認を行う。
   SessionStart Hookがsession_idをContextへ渡した場合は、`$maintain-project-memory`の
-  startを再実行せず、そのsession_idで`finish`する
+  startを再実行せず、そのsession_idで`finish`する。ただし`$implement`の開始手順2で分岐元を移った
+  場合は、同手順に従って同じsession_idで`discard`と`start`をやり直す
 - `$implement`で決めた完了条件は`/goal`へ渡し、会話に表示した検証結果で判定させる。
   停止条件も含める。判定はモデルが会話を読んで行うため、品質ゲートの実行そのものの代わりにしない
 - `$implement`でSession用worktreeへ移るときは、`git worktree add`の代わりにEnterWorktree Toolを
-  使う。作成先は`.claude/worktrees/`で、移動後のHookは`cwd`からそのworktreeの開始状態を使う
+  使う。作成先は`.claude/worktrees/`で、移動後のHookは`cwd`からそのworktreeの開始状態を使う。
+  EnterWorktreeは`origin/<既定branch>`から作り、既存の複製の`origin/HEAD`はGitHubの既定branchの変更に
+  追従しない。このため移動後は常に、`$implement`の「Session用worktreeへ移る」の手順2で選んだコミット
+  （元が`main`か`dev`なら`git fetch origin dev`の後の`origin/dev`、それ以外は元のHEAD）と
+  `git rev-parse HEAD`を比べる。一致せず、まだ何も変更していなければ
+  `git switch --no-track -C <現在のbranch名> <選んだコミット>`で付け替える。変更があるか、分岐元が
+  `origin/dev`のときにfetchが失敗するか`origin/dev`がなければ、利用者へ確認する。付け替えの前に開始状態を保存して
+  いれば、同じsession_idで`discard`と`start`をやり直す（ADR 0027）
 - Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`bypassPermissions`の
   とき無視される。このため`tools/hooks/enforce_read_only_agent.py`を`.claude/settings.json`へ
   書き込み得るToolだけを対象に登録し、`.codex/agents/`で`sandbox_mode = "read-only"`のAgentには
