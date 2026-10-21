@@ -30,6 +30,10 @@ Windowsでの開発には、Docker DesktopとVS CodeのDev Containersを推奨�
 WSL 2バックエンドだけで利用でき、Ubuntuなどの利用者向けWSLディストリビューションは必須では
 ありません。手順は[開発ガイド](DEVELOPMENT.md)を参照してください。
 
+運用では`main`（リリース済みの版）を使ってください。`dev`は次のリリースへ向けて統合中の版です
+（ADR 0027）。新しく複製する場合は`git clone -b main <RepositoryのURL>`、複製済みの場合は
+`git switch main`の後に`git pull`で最新のリリースへそろえてから、インストールします。
+
 ```bash
 python -m pip install -e ".[dev]"
 ```

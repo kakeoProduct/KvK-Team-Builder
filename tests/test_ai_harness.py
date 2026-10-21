@@ -314,6 +314,137 @@ def test_github_pr_skill_guards_credentials_and_external_actions() -> None:
         assert heading in pull_request_template
 
 
+def test_branching_flows_work_branches_through_dev_to_main() -> None:
+    """作業branchはdevへ、devだけがmainへmerge commitで取り込まれる運用を規約とSkillが共有する。"""
+
+    agents_policy = _compact((PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+    for required in (
+        "##ブランチ運用",
+        "作業branchは`dev`から作り、`dev`へのPullRequestで取り込む",
+        "`origin/dev`から作る",
+        "`main`へ取り込むのは`dev`からのPullRequestだけとし、mergecommitで取り込む",
+        "squashやrebaseで取り込まない",
+        "緊急の修正も`dev`を経由する",
+        "`main`と`dev`へ直接コミットまたはpushしない",
+        "導入時に`main`から`dev`を作る最初の通常pushだけを例外とする",
+        "リリースPullRequestのレビューは毎回初回のレビューとして扱い",
+        "前回のリリースの指摘、見送り、振り返りの回数を引き継がない",
+        "ADR0027",
+    ):
+        assert required in agents_policy, required
+
+    pr_skill = _compact(
+        (SKILL_DIRECTORY / "create-github-pr" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "baseを省略した場合、作業branchでは`dev`、`dev`では`main`とする",
+        "`dev`以外のbranchから`main`へのPullRequestと、`main`をheadにしたPullRequestは、"
+        "利用者が指定しても作らず",
+        "`gitfetchorigin<base>`が失敗する場合",
+        "コミット一覧は`origin/<base>..HEAD`、差分は`origin/<base>...HEAD`で収集し",
+        "`HEAD`と`origin/dev`が同じコミットであることを確かめ、違えば止める",
+        "headが`dev`の場合はpushせず",
+        # 起点を追跡したbranchはupstreamがあるように見え、pushを飛ばして`dev`を指してしまう。
+        "upstreamが`origin/<branch>`でなければ、upstreamがないものとして扱う",
+    ):
+        assert required in pr_skill, required
+
+    implement_skill = _compact(
+        (SKILL_DIRECTORY / "implement" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "現在のbranchが`main`か`dev`なら",
+        "`gitswitch--no-track-c<branch名>origin/dev`",
+        "未コミットの変更があるか、`gitfetchorigindev`が失敗するか、`origin/dev`がなければ、"
+        "移らずに利用者へ確認する",
+        # 開始時のHEADを基準にすると、`dev`の未リリースの変更が自分の差分になる。
+        "同じsession_idで`discard`と`start`をやり直す",
+        "gitworktreeadd--no-track-b<branch名>",
+        "末尾の`HEAD`を`origin/dev`に替える",
+        "ADR0027",
+    ):
+        assert required in implement_skill, required
+
+    claude_guide = _compact((PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8"))
+    for required in (
+        "`$implement`の「Session用worktreeへ移る」の手順2で選んだコミット",
+        "ただし`$implement`の開始手順2で分岐元を移った場合は",
+        "`gitswitch--no-track-C<現在のbranch名><選んだコミット>`",
+        "変更があるか、分岐元が`origin/dev`のときにfetchが失敗するか`origin/dev`がなければ、"
+        "利用者へ確認する",
+        "同じsession_idで`discard`と`start`をやり直す",
+        "ADR0027",
+    ):
+        assert required in claude_guide, required
+
+    development_guide = _compact(
+        (PROJECT_ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "##ブランチ運用",
+        "`gitbranch--no-trackdevorigin/main`",
+        "「Requireapprovals」は有効にしない",
+        "forcepushと削除を許可しない",
+        "「Donotallowbypassingtheabovesettings」を有効にし",
+        "「Pullrequesttitle」にする",
+        "最初のリリースPullRequestで`main`へ出した後に",
+        # 有効にすると、2回目以降のリリースやmergecommitが止まる。
+        "「Requirebranchestobeuptodatebeforemerging」は有効にしない",
+        "「Requirelinearhistory」は有効にしない",
+        "`gitremoteset-headorigin--auto`",
+        "手順2と手順3は、最初のリリースPullRequestを取り込む前に済ませます",
+    ):
+        assert required in development_guide, required
+    # 保護規則とmerge方式を先に設定しないと、最初のリリースがsquashや英語のmergecommitで入る。
+    default_branch_change = development_guide.index(
+        "最初のリリースPullRequestで`main`へ出した後に"
+    )
+    assert development_guide.index("「Requireapprovals」は有効にしない") < (
+        default_branch_change
+    )
+    assert development_guide.index("「Pullrequesttitle」にする") < default_branch_change
+
+    # 必須チェック名はCIのjob名と一致しないと選べないため、matrixから組み立てて照合する。
+    workflow = (PROJECT_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "name: ${{ matrix.os }} / Python ${{ matrix.python-version }}" in workflow
+    matrix = yaml.safe_load(workflow)["jobs"]["check"]["strategy"]["matrix"]
+    assert set(matrix) == {"os", "python-version"}
+    expected_checks = {
+        f"{operating_system}/Python{version}"
+        for operating_system in matrix["os"]
+        for version in matrix["python-version"]
+    }
+    # matrixから外したjobの名前が残ると、走らない必須チェックを待ち続けて取り込めなくなる。
+    documented_checks = set(
+        re.findall(r"`([a-z]+-latest/Python[0-9.]+)`", development_guide)
+    )
+    assert documented_checks == expected_checks
+
+    readme = _compact((PROJECT_ROOT / "README.md").read_text(encoding="utf-8"))
+    assert "運用では`main`" in readme
+
+    adr = _compact(
+        (
+            PROJECT_ROOT / "docs" / "adr" / "0027-separate-dev-and-main-branches.md"
+        ).read_text(encoding="utf-8")
+    )
+    for required in (
+        "`dev`のコミットをすべて`main`の祖先に含め",
+        "「Requirebranchestobeuptodatebeforemerging」と「Requirelinearhistory」は有効にしない",
+        "`--no-track`",
+        "`$implement`の「Session用worktreeへ移る」の手順2で選んだコミット",
+    ):
+        assert required in adr, required
+    # 出典にない判断ごとに、覆せる仮定であることを示す。
+    assert adr.count("（作成者の仮定）") >= 4
+    adr_index = (PROJECT_ROOT / "docs" / "adr" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "`0027`" in adr_index
+
+
 def test_github_issue_skill_guards_creation_and_permanent_deletion() -> None:
     """Issue管理Skillが重複作成と誤削除を防ぐ。"""
 
@@ -1607,7 +1738,7 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
     verify = compact_pull_request.index(_compact("## Pull Requestの対象を検証する"))
     branch_check = compact_pull_request.index(
         _compact(
-            "branch名と`<base>...HEAD`のコミットメッセージが`AGENTS.md`の伏せる語の規則"
+            "branch名と`origin/<base>..HEAD`のコミットメッセージが`AGENTS.md`の伏せる語の規則"
         )
     )
     scope_check = compact_pull_request.index(
