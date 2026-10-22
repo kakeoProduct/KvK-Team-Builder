@@ -1,7 +1,9 @@
 # ADR 0027: 統合用の`dev`とリリース用の`main`にbranchを分ける
 
-- 状態: 提案中
+- 状態: 提案中（一部をADR 0028で置き換え）
 - 日付: 2026-10-21
+- 置き換え: CIをすべてのpushとPull Requestで実行するとした点は、ADR 0028で置き換えた。CIは`main`と
+  `dev`へのpushと、すべてのPull Requestで実行する
 
 ## 背景
 
@@ -34,7 +36,7 @@
 - （作成者の仮定）品質ゲートと`$review-kvk-change`の条件は、`dev`へのPull RequestとリリースPull Request
   の両方に適用する。リリースPull Requestのレビューは毎回初回のレビューとして扱い、保存ファイル名が
   毎回`dev`になっても前回のリリースの指摘、見送り、振り返りの回数を引き継がない。CIは従来どおり
-  すべてのpushとPull Requestで実行する
+  すべてのpushとPull Requestで実行する（ADR 0028で置き換えた）
 - GitHubの既定branchを`dev`へ変え、`main`と`dev`にbranch保護を設定する。これはRepository管理者が
   GitHubの設定画面で行い、Agentは行わない
 - （作成者の仮定）保護規則の内容は`DEVELOPMENT.md`の「ブランチ運用」に従う。Pull Requestを必須とし、

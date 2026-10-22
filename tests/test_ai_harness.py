@@ -445,6 +445,80 @@ def test_branching_flows_work_branches_through_dev_to_main() -> None:
     assert "`0027`" in adr_index
 
 
+def test_ci_runs_once_per_change_and_cancels_only_stale_pull_requests() -> None:
+    """CIは作業branchのpushとPull Requestで重複せず、pushの実行を中止しない。"""
+
+    workflow = yaml.safe_load(
+        (PROJECT_ROOT / ".github" / "workflows" / "tests.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    # YAML 1.1では`on`キーが真偽値として読まれる。
+    triggers = workflow[True]
+    # pull_request_targetなどを足すと、重複実行やforkへの権限の拡大が戻る。
+    assert set(triggers) == {"push", "pull_request"}
+    # 作業branchのpushまで対象にすると、Pull Requestと同じjobが2回走る。
+    assert triggers["push"] == {"branches": ["main", "dev"]}
+    # 対象branchを絞ると、devへのPull RequestかリリースPull Requestの一方が検証されない。
+    assert triggers["pull_request"] is None
+    # branch名ではforkや同じ名前のbranchのPull Requestとグループが重なるため、番号で分ける。
+    # 番号がないpushはrun_idで一意になり、待機中の実行も中止されない。
+    assert workflow["concurrency"] == {
+        "group": (
+            "${{ github.workflow }}-"
+            "${{ github.event.pull_request.number || github.run_id }}"
+        ),
+        "cancel-in-progress": True,
+    }
+
+    development_guide = _compact(
+        (PROJECT_ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "CIは`main`と`dev`へのpushと、すべてのPullRequestで実行します",
+        "PullRequestを作る前の作業branchのpushでは実行しない",
+        "同じPullRequestへ続けてpushすると、古い実行は中止されます",
+        "ほかのPullRequestやpushの実行は中止されません",
+        # 取り込んだ後のmainへのpushも、devの先頭と同じ内容を検証する。
+        "`dev`へのpush、リリースPullRequest、取り込んだ後の`main`へのpushは同じ内容を"
+        "検証するため、リリースごとに3回実行されます",
+        "（作成者の仮定）PullRequestを作る前にCIで確かめたい場合は、利用者が明示したときに"
+        "`$create-github-pr`でDraftPullRequestを作ります",
+    ):
+        assert required in development_guide, required
+
+    adr = _compact(
+        (PROJECT_ROOT / "docs" / "adr" / "0028-run-ci-once-per-change.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    for required in (
+        "`dev`へのpush、リリースPullRequest、取り込んだ後の`main`へのpushは同じ内容を"
+        "検証するため、リリースごとに3回実行される",
+        "`dev`へのpushとリリースPullRequestは`dev`の同じ先頭コミットに対して実行される",
+        "${{github.event.pull_request.number||github.run_id}}",
+        "forkや同じ名前のbranchから出たPullRequestの実行を中止しない",
+        "（作成者の仮定）PullRequestを作る前は手元の`pythontools/check.py`で確かめる",
+        "利用者が明示したときに`$create-github-pr`でDraftPullRequestを作る",
+    ):
+        assert required in adr, required
+    # 置き換えた文の位置でも、古い判断として読まれないようにする（ADR 0021の前例）。
+    replaced_adr = _compact(
+        (
+            PROJECT_ROOT / "docs" / "adr" / "0027-separate-dev-and-main-branches.md"
+        ).read_text(encoding="utf-8")
+    )
+    for required in (
+        "状態:提案中（一部をADR0028で置き換え）",
+        "すべてのpushとPullRequestで実行する（ADR0028で置き換えた）",
+    ):
+        assert required in replaced_adr, required
+    adr_index = (PROJECT_ROOT / "docs" / "adr" / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert "`0028`" in adr_index
+
+
 def test_github_issue_skill_guards_creation_and_permanent_deletion() -> None:
     """Issue管理Skillが重複作成と誤削除を防ぐ。"""
 
