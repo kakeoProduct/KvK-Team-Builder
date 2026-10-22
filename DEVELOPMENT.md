@@ -367,6 +367,12 @@ python .agents/skills/maintain-project-memory/scripts/session_memory.py validate
 - 緊急の修正も`dev`を経由し、取り込んだ直後にリリースPull Requestを作ります
 - `main`と`dev`へ直接コミットまたはpushしません。導入時に`main`から`dev`を作る最初の通常pushだけが
   例外です
+- CIは`main`と`dev`へのpushと、すべてのPull Requestで実行します。Pull Requestを作る前の作業branchの
+  pushでは実行しないため、手元の`python tools/check.py`で確かめます。（作成者の仮定）Pull Requestを
+  作る前にCIで確かめたい場合は、利用者が明示したときに`$create-github-pr`でDraft Pull Requestを作ります。
+  同じPull Requestへ続けてpushすると、古い実行は中止されます。ほかのPull Requestやpushの実行は
+  中止されません。`dev`へのpush、リリースPull Request、取り込んだ後の`main`へのpushは同じ内容を
+  検証するため、リリースごとに3回実行されます（ADR 0028）
 - 利用者が運用に使うのは`main`です。READMEの手順もこれに合わせています
 
 導入時の手順は次のとおりです。番号の順に行います。手順1はClaude CodeのAgentが利用者の確認を得て
