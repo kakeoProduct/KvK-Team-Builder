@@ -104,6 +104,38 @@
   }
   .toolbar { display: flex; gap: 10px; margin-bottom: 10px; }
   .empty { color: #999; font-size: 13px; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 3px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  /* --- ページ内タブ（SIEGE-050〜SIEGE-054） --- */
+  .tabbar { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+  /* 狭い画面でもタブ追加のボタンを折り返さず、タブの並びの側を横にスクロールさせる */
+  .tabbar > button { flex: 0 0 auto; white-space: nowrap; }
+  .tablist {
+    display: flex; gap: 4px; flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 4px 0;
+  }
+  .tablist .tab {
+    flex: 0 0 auto; white-space: nowrap;
+    background: #e4e7ee; color: #333; border: 1px solid #cfd4de; border-bottom: none;
+    border-radius: 8px 8px 0 0; padding: 8px 14px; font-size: 14px;
+  }
+  /* 選択中は色に加え、太字と上辺の帯で区別する */
+  .tablist .tab[aria-selected="true"] {
+    background: #fff; color: #111; font-weight: bold; box-shadow: inset 0 3px 0 #4a6cf7;
+  }
+  .tab-tools { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+  .tab-tools .field input[type="text"] { width: 200px; max-width: 100%; }
+  /* 計算した後に入力を変えたことを、「⚠」と文言で示す（SIEGE-043） */
+  .result-notice { color: #8a4b00; font-weight: bold; font-size: 13px; margin-bottom: 10px; }
+  .result-notice:empty { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -219,7 +251,23 @@
 <h1>集結タイムライン計算</h1>
 <div class="sub">
 「メイン合わせ集結」作戦（削り→メイン→増援の階段状着弾、帰還ベースのクールダウン）でタイムラインを自動計算します。<br>
-削り担当は複数パターンに分けて設定でき、メイン・増援は全パターン共通で使い回されます。
+削り担当は複数パターンに分けて設定でき、メイン・増援は全パターン共通で使い回されます。<br>
+タブごとに別の編成を計算して残せます。
+</div>
+
+<div class="tabbar">
+  <div class="tablist" role="tablist" id="tabList" aria-label="計算機のタブ"></div>
+  <button type="button" id="addTabBtn" class="secondary small">+ タブ追加</button>
+</div>
+
+<div id="tabPanel" role="tabpanel">
+
+<div class="tab-tools">
+  <div class="field">
+    <label for="tabNameInput">タブ名</label>
+    <input type="text" id="tabNameInput" autocomplete="off">
+  </div>
+  <button type="button" id="deleteTabBtn" class="danger small">このタブを削除</button>
 </div>
 
 <div class="card">
@@ -267,6 +315,7 @@
 
 <div class="card" id="outputCard" style="display:none;">
   <h2>計算結果（1周目）</h2>
+  <div class="result-notice" id="resultNotice" role="status" aria-live="polite"></div>
   <div class="toolbar">
     <button id="copyBtn" class="secondary small">Discord用にコピー</button>
   </div>
@@ -279,6 +328,8 @@
   <pre id="refOutput"></pre>
 </div>
 
+</div>
+
 <script>
 const memberBody = document.getElementById("memberBody");
 const patternList = document.getElementById("patternList");
@@ -286,35 +337,154 @@ const outputCard = document.getElementById("outputCard");
 const outputEl = document.getElementById("output");
 const refOutputCard = document.getElementById("refOutputCard");
 const refOutputEl = document.getElementById("refOutput");
+const resultNotice = document.getElementById("resultNotice");
+const tabList = document.getElementById("tabList");
+const tabPanel = document.getElementById("tabPanel");
+const tabNameInput = document.getElementById("tabNameInput");
+const deleteTabBtn = document.getElementById("deleteTabBtn");
 
+// 表示中のタブの入力。タブを切り替えるとsyncActiveTab()とloadActiveTab()で入れ替える。
 let memberSeq = 0;
 let patternSeq = 0;
 let members = []; // {id, role, label, march}
 let patterns = []; // {id, name, kezuriIds: Set of member ids}
 
-// --- 入力値の自動保存（このブラウザのみ） ---
-const SIEGE_STORAGE_KEY = "siegeCalcState";
-const settingFieldIds = ["kezuriRallyMin", "mainRallyMin", "phaseGap", "buffer"];
+// タブ（SIEGE-050）: {id, seq, name, memberSeq, patternSeq, members, patterns, settings, result}
+let tabSeq = 0;
+let siegeTabs = [];
+let activeTabId = null;
 
-function saveSiegeState() {
-  try {
-    const settings = {};
-    settingFieldIds.forEach(id => { settings[id] = document.getElementById(id).value; });
-    localStorage.setItem(SIEGE_STORAGE_KEY, JSON.stringify({
-      memberSeq, patternSeq, members,
-      patterns: patterns.map(p => ({ id: p.id, name: p.name, kezuriIds: Array.from(p.kezuriIds) })),
-      settings,
-    }));
-  } catch (e) {}
+// --- 入力値と計算結果の自動保存（このブラウザのみ。SIEGE-040〜SIEGE-044） ---
+// 周期ウェーブタイマーもこのキーを読む（WAVE-070）。形式を変えるときは両方の要件をそろえる。
+const SIEGE_STORAGE_KEY = "siegeCalcTabs";
+const LEGACY_STORAGE_KEY = "siegeCalcState";
+const settingFieldIds = ["kezuriRallyMin", "mainRallyMin", "phaseGap", "buffer"];
+const DEFAULT_SETTINGS = { kezuriRallyMin: "5", mainRallyMin: "3", phaseGap: "1", buffer: "30" };
+
+function activeTab() {
+  return siegeTabs.find(t => t.id === activeTabId) || null;
 }
 
-function loadSiegeState() {
+function tabLabel(t) {
+  return (t.name || "").trim() || `計算${t.seq}`;
+}
+
+// タブのidは保存データを作り直しても重ならないよう、作った時刻と乱数を含める。
+// 周期ウェーブタイマーはidで計算元を見分けるため、通し番号だけだと別のタブを同じ計算元と誤る（SIEGE-041）。
+function uniqueTabId(seq) {
+  return `t${seq}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createTab() {
+  tabSeq += 1;
+  return {
+    id: uniqueTabId(tabSeq), seq: tabSeq, name: `計算${tabSeq}`,
+    memberSeq: 0, patternSeq: 0, members: [], patterns: [],
+    settings: { ...DEFAULT_SETTINGS }, result: null,
+  };
+}
+
+function syncActiveTab() {
+  const t = activeTab();
+  if (!t) return;
+  t.memberSeq = memberSeq;
+  t.patternSeq = patternSeq;
+  t.members = members;
+  t.patterns = patterns;
+  settingFieldIds.forEach(id => { t.settings[id] = document.getElementById(id).value; });
+}
+
+// 別のブラウザのタブの保存を読み直している間は保存しない（SIEGE-044）
+let applyingExternalUpdate = false;
+
+function saveSiegeState() {
+  syncActiveTab();
+  if (applyingExternalUpdate) {
+    renderResultNotice();
+    return;
+  }
   try {
-    const raw = localStorage.getItem(SIEGE_STORAGE_KEY);
+    localStorage.setItem(SIEGE_STORAGE_KEY, JSON.stringify({
+      version: 1, tabSeq, activeTabId,
+      tabs: siegeTabs.map(t => ({
+        id: t.id, seq: t.seq, name: t.name, memberSeq: t.memberSeq, patternSeq: t.patternSeq,
+        members: t.members,
+        patterns: t.patterns.map(p => ({ id: p.id, name: p.name, kezuriIds: Array.from(p.kezuriIds) })),
+        settings: t.settings,
+        result: t.result,
+      })),
+    }));
+  } catch (e) {}
+  renderResultNotice();
+}
+
+// 計算結果に影響する入力をまとめた文字列。計算した時点の値と比べ、入力の変更を知らせる（SIEGE-043）。
+function inputKey() {
+  const settings = {};
+  settingFieldIds.forEach(id => { settings[id] = document.getElementById(id).value; });
+  return JSON.stringify({
+    members: members.map(m => [m.id, m.role, m.label, m.march]),
+    patterns: patterns.map(p => [p.id, p.name, members.filter(m => p.kezuriIds.has(m.id)).map(m => m.id)]),
+    settings,
+  });
+}
+
+function renderResultNotice() {
+  const t = activeTab();
+  const result = t && t.result;
+  const changed = Boolean(result && typeof result.inputKey === "string" && result.inputKey !== inputKey());
+  if (!changed) resultNotice.textContent = "";
+  else if (result.ok) resultNotice.textContent = "⚠ 入力が変更されています。計算し直してください";
+  else resultNotice.textContent = "⚠ 参考：2周分の計算結果は、変更前の入力で計算したものです";
+}
+
+function readStoredJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch (e) {
     return null;
   }
+}
+
+function restorePatterns(saved) {
+  return (saved || []).map(p => ({ id: p.id, name: p.name, kezuriIds: new Set(p.kezuriIds || []) }));
+}
+
+// 保存したタブを復元する。サンプルを入れる必要があればtrueを返す。
+function restoreTabs() {
+  const saved = readStoredJson(SIEGE_STORAGE_KEY);
+  if (saved && Array.isArray(saved.tabs) && saved.tabs.length) {
+    siegeTabs = saved.tabs.map(t => ({
+      id: t.id, seq: t.seq, name: t.name || "",
+      memberSeq: t.memberSeq || 0, patternSeq: t.patternSeq || 0,
+      members: Array.isArray(t.members) ? t.members : [],
+      patterns: restorePatterns(t.patterns),
+      settings: { ...DEFAULT_SETTINGS, ...(t.settings || {}) },
+      result: t.result || null,
+    }));
+    tabSeq = Math.max(saved.tabSeq || 0, ...siegeTabs.map(t => t.seq || 0));
+    activeTabId = siegeTabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : siegeTabs[0].id;
+    return false;
+  }
+
+  // 旧形式（siegeCalcState）の入力は、メンバーが0人でも最初のタブへそのまま移す。
+  // 旧キーは読むだけで変えない（SIEGE-042）。
+  const first = createTab();
+  siegeTabs = [first];
+  activeTabId = first.id;
+  const legacy = readStoredJson(LEGACY_STORAGE_KEY);
+  if (legacy && Array.isArray(legacy.members)) {
+    first.memberSeq = legacy.memberSeq || 0;
+    first.patternSeq = legacy.patternSeq || 0;
+    first.members = legacy.members;
+    first.patterns = restorePatterns(legacy.patterns);
+    settingFieldIds.forEach(id => {
+      if (legacy.settings && legacy.settings[id] !== undefined) first.settings[id] = legacy.settings[id];
+    });
+    return false;
+  }
+  return true;
 }
 
 function addMember(role, label, march) {
@@ -461,21 +631,8 @@ function circledNumber(n) {
   return n <= circled.length ? circled[n - 1] : `(${n})`;
 }
 
-// --- 初期データ：保存済みの入力があれば復元、なければサンプルを表示 ---
-const savedSiege = loadSiegeState();
-if (savedSiege && Array.isArray(savedSiege.members) && savedSiege.members.length) {
-  memberSeq = savedSiege.memberSeq || 0;
-  patternSeq = savedSiege.patternSeq || 0;
-  members = savedSiege.members;
-  patterns = (savedSiege.patterns || []).map(p => ({ id: p.id, name: p.name, kezuriIds: new Set(p.kezuriIds) }));
-  if (savedSiege.settings) {
-    settingFieldIds.forEach(id => {
-      if (savedSiege.settings[id] !== undefined) document.getElementById(id).value = savedSiege.settings[id];
-    });
-  }
-  renderMembers();
-  renderPatterns();
-} else {
+// 初回表示のサンプル（SIEGE-006）
+function addSampleMembersAndPatterns() {
   addMember("メイン", "メイン", 0);
   addMember("増援", "増援", 0);
   ["A", "B", "C", "D", "E", "F"].forEach(l => addMember("削り", l, 0));
@@ -484,8 +641,137 @@ if (savedSiege && Array.isArray(savedSiege.members) && savedSiege.members.length
   addPattern("③", ["E", "F"]);
 }
 
+// --- タブ（SIEGE-050〜SIEGE-054） ---
+function renderTabs() {
+  tabList.innerHTML = "";
+  siegeTabs.forEach(t => {
+    const btn = document.createElement("button");
+    const selected = t.id === activeTabId;
+    btn.type = "button";
+    btn.className = "tab";
+    btn.id = "tab-" + t.id;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", selected ? "true" : "false");
+    btn.setAttribute("aria-controls", "tabPanel");
+    btn.tabIndex = selected ? 0 : -1;
+    btn.textContent = tabLabel(t);
+    btn.addEventListener("click", () => switchTab(t.id));
+    tabList.appendChild(btn);
+  });
+  tabPanel.setAttribute("aria-labelledby", "tab-" + activeTabId);
+  deleteTabBtn.disabled = siegeTabs.length <= 1;
+}
+
+function renderResult() {
+  const result = activeTab().result;
+  outputEl.textContent = result ? result.output : "";
+  outputCard.style.display = result ? "block" : "none";
+  const hasReference = Boolean(result && result.reference !== null);
+  refOutputEl.textContent = hasReference ? result.reference : "";
+  refOutputCard.style.display = hasReference ? "block" : "none";
+  renderResultNotice();
+}
+
+function loadActiveTab() {
+  const t = activeTab();
+  memberSeq = t.memberSeq;
+  patternSeq = t.patternSeq;
+  members = t.members;
+  patterns = t.patterns;
+  settingFieldIds.forEach(id => { document.getElementById(id).value = t.settings[id]; });
+  tabNameInput.value = tabLabel(t);
+  renderTabs();
+  renderMembers();
+  renderPatterns();
+  renderResult();
+}
+
+function switchTab(id) {
+  if (id === activeTabId) return;
+  syncActiveTab();
+  activeTabId = id;
+  loadActiveTab();
+  saveSiegeState();
+}
+
+function focusSelectedTab() {
+  const selected = tabList.querySelector('[aria-selected="true"]');
+  if (selected) selected.focus();
+}
+
+tabList.addEventListener("keydown", e => {
+  const index = siegeTabs.findIndex(t => t.id === activeTabId);
+  const last = siegeTabs.length - 1;
+  const next = { ArrowRight: index === last ? 0 : index + 1, ArrowLeft: index === 0 ? last : index - 1, Home: 0, End: last }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  switchTab(siegeTabs[next].id);
+  focusSelectedTab();
+});
+
+// 新しいタブは表示中のタブの入力を複製して始める。計算結果は写さない（SIEGE-051）。
+document.getElementById("addTabBtn").addEventListener("click", () => {
+  syncActiveTab();
+  const source = activeTab();
+  const t = createTab();
+  t.memberSeq = source.memberSeq;
+  t.patternSeq = source.patternSeq;
+  t.members = source.members.map(m => ({ ...m }));
+  t.patterns = source.patterns.map(p => ({ id: p.id, name: p.name, kezuriIds: new Set(p.kezuriIds) }));
+  t.settings = { ...source.settings };
+  siegeTabs.push(t);
+  activeTabId = t.id;
+  loadActiveTab();
+  saveSiegeState();
+  focusSelectedTab();
+});
+
+tabNameInput.addEventListener("input", () => {
+  activeTab().name = tabNameInput.value;
+  const selected = tabList.querySelector('[aria-selected="true"]');
+  if (selected) selected.textContent = tabLabel(activeTab());
+  saveSiegeState();
+});
+
+deleteTabBtn.addEventListener("click", () => {
+  if (siegeTabs.length <= 1) return;
+  const t = activeTab();
+  if (!confirm(`タブ「${tabLabel(t)}」を削除します。このタブの入力と計算結果は元に戻せません。`)) return;
+  const index = siegeTabs.indexOf(t);
+  siegeTabs.splice(index, 1);
+  activeTabId = (siegeTabs[index] || siegeTabs[index - 1]).id;
+  loadActiveTab();
+  saveSiegeState();
+  focusSelectedTab();
+});
+
 settingFieldIds.forEach(id => {
   document.getElementById(id).addEventListener("input", saveSiegeState);
+});
+
+// 別のブラウザのタブで保存データが変わったら読み直し、後から保存した側が
+// もう一方のタブと計算結果を消さないようにする（SIEGE-044）。読めない保存データは無視する。
+function applyOwnExternalUpdate() {
+  const saved = readStoredJson(SIEGE_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+  const keep = activeTabId;
+  restoreTabs();
+  if (siegeTabs.some(t => t.id === keep)) activeTabId = keep;
+  applyingExternalUpdate = true;
+  try {
+    loadActiveTab();
+  } finally {
+    applyingExternalUpdate = false;
+  }
+}
+
+window.addEventListener("storage", e => {
+  if (e.key === SIEGE_STORAGE_KEY) applyOwnExternalUpdate();
+});
+
+// 別のページへ移って戻る（戻るボタンなどで復元される）間の保存は通知されないため、読み直す
+window.addEventListener("pageshow", e => {
+  if (e.persisted) applyOwnExternalUpdate();
 });
 
 // --- 計算ロジック ---
@@ -508,34 +794,28 @@ function runCalculation() {
   const mainRally = (parseInt(document.getElementById("mainRallyMin").value) || 0) * 60;
   const gap = parseFloat(document.getElementById("phaseGap").value) || 0;
   const buffer = parseFloat(document.getElementById("buffer").value) || 0;
-  const rounds = 2; // 周期（1周にかかる時間）を求めるため、常に2周分だけ内部計算する
 
   const mainMembers = members.filter(m => m.role === "メイン");
   const reinforceMembers = members.filter(m => m.role === "増援");
 
   if (patterns.length === 0) {
-    outputEl.textContent = "パターンが設定されていません。";
-    outputCard.style.display = "block";
+    saveResult(false, "パターンが設定されていません。");
+    return;
+  }
+  if (mainMembers.length === 0) {
+    saveResult(false, "メイン役割のメンバーがいません");
     return;
   }
 
   const readyTime = {};
   members.forEach(m => { readyTime[m.id] = 0; });
 
-  // インスタンス化：周回 x パターン
-  const instances = [];
-  for (let r = 1; r <= rounds; r++) {
-    patterns.forEach((p, idx) => {
-      instances.push({ round: r, pattern: p, order: idx });
-    });
-  }
-
   function kezuriOf(p) {
     return members.filter(m => p.kezuriIds.has(m.id));
   }
 
-  function computeMinT(instance) {
-    const kezuri = kezuriOf(instance.pattern);
+  function computeMinT(p) {
+    const kezuri = kezuriOf(p);
     const candidates = [0];
     kezuri.forEach(m => candidates.push(readyTime[m.id] + kezuriRally + m.march));
     mainMembers.forEach(m => candidates.push(readyTime[m.id] + mainRally + m.march - gap));
@@ -543,54 +823,46 @@ function runCalculation() {
     return Math.max(...candidates);
   }
 
-  const results = []; // {round, pattern, T, lines:[{label, role, rallyDur, launch, arrival, ret}]}
-  let remaining = [...instances];
-
-  while (remaining.length > 0) {
-    let best = null;
-    let bestT = Infinity;
-    remaining.forEach(inst => {
-      const t = computeMinT(inst);
-      if (t < bestT - 1e-9) {
-        bestT = t;
-        best = inst;
-      }
-    });
-
-    const T = bestT;
-    const kezuri = kezuriOf(best.pattern);
-    const lines = [];
-
-    kezuri.forEach(m => {
-      const arrival = T;
-      const launch = arrival - kezuriRally - m.march;
-      const ret = arrival + m.march;
-      readyTime[m.id] = ret + buffer;
-      lines.push({ label: m.label, rallyDur: kezuriRally, launch, arrival, ret });
-    });
-    mainMembers.forEach(m => {
-      const arrival = T + gap;
-      const launch = arrival - mainRally - m.march;
-      const ret = arrival + m.march;
-      readyTime[m.id] = ret + buffer;
-      lines.push({ label: m.label, rallyDur: mainRally, launch, arrival, ret });
-    });
-    reinforceMembers.forEach(m => {
-      const arrival = T + gap * 2;
-      const launch = arrival - mainRally - m.march;
-      const ret = arrival + m.march;
-      readyTime[m.id] = ret + buffer;
-      lines.push({ label: m.label, rallyDur: mainRally, launch, arrival, ret });
-    });
-
-    results.push({ round: best.round, pattern: best.pattern, T, lines });
-    remaining = remaining.filter(x => x !== best);
+  function confirmLine(m, arrival, rallyDur) {
+    const launch = arrival - rallyDur - m.march;
+    const ret = arrival + m.march;
+    readyTime[m.id] = ret + buffer;
+    return { memberId: m.id, label: m.label, rallyDur, launch, arrival, ret };
   }
 
+  // 1周目を定義順（①②③…）に1件ずつ確定する（SIEGE-013）。
+  // Tの小さい順に確定すると1周目と2周目で順番が変わり、1周目のループが待ち時間を破る。
+  const firstRound = patterns.map(p => {
+    const T = computeMinT(p);
+    const lines = [];
+    kezuriOf(p).forEach(m => lines.push(confirmLine(m, T, kezuriRally)));
+    mainMembers.forEach(m => lines.push(confirmLine(m, T + gap, mainRally)));
+    reinforceMembers.forEach(m => lines.push(confirmLine(m, T + gap * 2, mainRally)));
+    return { pattern: p, T, lines };
+  });
+
+  // 周期：1周目を周期ずつずらして繰り返しても、全員が帰還+バッファ以降に発起でき、
+  // パターンの順番も変わらない最小の値（SIEGE-017）。
+  let cycle = firstRound[firstRound.length - 1].T - firstRound[0].T;
+  const spans = {};
+  firstRound.forEach(res => res.lines.forEach(line => {
+    const span = spans[line.memberId] || (spans[line.memberId] = { firstLaunch: Infinity, free: -Infinity });
+    span.firstLaunch = Math.min(span.firstLaunch, line.launch);
+    span.free = Math.max(span.free, line.ret + buffer);
+  }));
+  Object.values(spans).forEach(span => { cycle = Math.max(cycle, span.free - span.firstLaunch); });
+
+  // 2周目は1周目の全時刻へ周期を足したもの（SIEGE-021）
+  const shift = res => ({
+    pattern: res.pattern,
+    T: res.T + cycle,
+    lines: res.lines.map(l => ({ ...l, launch: l.launch + cycle, arrival: l.arrival + cycle, ret: l.ret + cycle })),
+  });
+  const rounds = [firstRound, firstRound.map(shift)];
+
   // パターンの発起・着弾・帰還テキストをまとめて生成するヘルパー
-  function buildPatternLines(round, p) {
-    const res = results.find(x => x.round === round && x.pattern.id === p.id);
-    if (!res) return [];
+  function buildPatternLines(res) {
+    const p = res.pattern;
     const lines = [];
     const kezuriLabels = kezuriOf(p).map(m => m.label).join("+");
     lines.push(`${p.name}${kezuriLabels}→メイン→増援`);
@@ -605,32 +877,44 @@ function runCalculation() {
     return lines;
   }
 
-  // 周期（1周目→2周目の間隔）を計算
-  const first = patterns[0];
-  const t1 = results.find(x => x.round === 1 && x.pattern.id === first.id)?.T;
-  const t2 = results.find(x => x.round === 2 && x.pattern.id === first.id)?.T;
-  const cycleText = (t1 !== undefined && t2 !== undefined) ? formatTime(t2 - t1) : null;
+  const cycleText = formatTime(cycle);
 
   // メイン出力：1周目だけ（周期ウェーブタイマー等に貼り付けて無限ループさせる用）
   const outLines = [];
-  patterns.forEach(p => {
-    outLines.push(...buildPatternLines(1, p));
+  firstRound.forEach(res => {
+    outLines.push(...buildPatternLines(res));
   });
-  if (cycleText) outLines.push(`周期：${cycleText}`);
-  outputEl.textContent = outLines.join("\n");
-  outputCard.style.display = "block";
+  outLines.push(`周期：${cycleText}`);
 
   // 参考出力：1周目・2周目の両方を別枠に表示
   const refLines = [];
-  for (let r = 1; r <= rounds; r++) {
-    refLines.push(`【${r}周目】`);
-    patterns.forEach(p => {
-      refLines.push(...buildPatternLines(r, p));
+  rounds.forEach((round, i) => {
+    refLines.push(`【${i + 1}周目】`);
+    round.forEach(res => {
+      refLines.push(...buildPatternLines(res));
     });
-  }
-  if (cycleText) refLines.push(`周期：${cycleText}`);
-  refOutputEl.textContent = refLines.join("\n");
-  refOutputCard.style.display = "block";
+  });
+  refLines.push(`周期：${cycleText}`);
+
+  saveResult(true, outLines.join("\n"), refLines.join("\n"));
+}
+
+// 計算結果を表示中のタブへ記録して表示する（SIEGE-040、SIEGE-041）。
+// 計算できなかった場合は前回の参考結果を残す（SIEGE-034）。
+function saveResult(ok, output, reference) {
+  const t = activeTab();
+  const previous = t.result;
+  t.result = {
+    revision: (previous ? previous.revision : 0) + 1,
+    ok,
+    output,
+    reference: reference !== undefined ? reference : (previous ? previous.reference : null),
+    // inputKeyは参考結果を計算した入力。計算できなかったときは残した参考結果の入力を引き継ぎ、
+    // 参考結果がなければ比べる対象もないためnullにする（SIEGE-041、SIEGE-043）
+    inputKey: ok ? inputKey() : (previous && previous.reference !== null ? previous.inputKey : null),
+  };
+  renderResult();
+  saveSiegeState();
 }
 
 document.getElementById("calcBtn").addEventListener("click", runCalculation);
@@ -643,8 +927,11 @@ document.getElementById("copyBtn").addEventListener("click", () => {
   });
 });
 
-renderMembers();
-renderPatterns();
+// --- 初期データ：保存済みのタブを復元し、なければ旧形式を移すかサンプルを表示する ---
+const needsSample = restoreTabs();
+loadActiveTab();
+if (needsSample) addSampleMembersAndPatterns();
+saveSiegeState();
 </script>
 
 </body>

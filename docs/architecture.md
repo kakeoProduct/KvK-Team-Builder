@@ -240,6 +240,14 @@ Interactionのために主要なUI FrameworkまたはAnimation Libraryを追加�
 要件定義書の要件IDをテストの期待値にし、移植中のHTMLとPythonの食い違いを要件定義書で
 判断します。
 
+集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで読み込み、画面と同じ
+操作で動かす`tests/web/`の検査で確かめます。`tools/check_web.py`が`python tools/check.py`の1項目として
+実行し、Node.jsまたはjsdomがなければ入れ方を示して失敗します。Node.jsの版は`.node-version`、jsdomの
+版は`package.json`と`package-lock.json`で固定します（ADR 0030）。
+
+2つのツールは同じoriginのlocalStorageでつながります。周期ウェーブタイマーは集結タイムライン計算の
+`siegeCalcTabs`を読むだけで、書き換えません。
+
 ## エラー方針
 
 - 入力構造の不備: `ParseError`

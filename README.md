@@ -17,7 +17,7 @@ Google OR-Tools CP-SATで自動生成するPython CLIです。
 
 同盟分散は評価しません。同盟が不明な参加者は`未設定`として入力できます。
 
-上記は現在の実装の動作です。実際の運用ルール（所属固定、リーダー数で決まる隊の数、★やT11の配置、
+上記は現在の実装の動作です。実際の運用ルール（所属固定、リーダー数で決まる隊の数、◆やT11の配置、
 総力モード、チャット共有用テキストの出力）は
 [KvKチーム編成 要件定義書](docs/requirements/team-building/README.md)を目標仕様とし、
 順に実装へ反映します（ADR 0023）。
@@ -230,9 +230,13 @@ web/            独立したブラウザ用補助ツール（Python処理の対�
 
 `web/`には、KvK当日に使う単体HTMLツール（攻城タイムライン計算、占領判定、同着カウント、
 周期ウェーブタイマー）を置いています。これらは編成CLIとは独立しており、計算ロジックの正本は
-各HTMLです。PythonのParser、Optimizer、Validator、Exporterへは移植せず、品質ゲートの
+各HTMLです。PythonのParser、Optimizer、Validator、Exporterへは移植せず、Ruff、mypy、pytestの
 対象にも含めません。詳細は[ADR 0013](docs/adr/0013-separate-web-tools-from-python-scope.md)を
-参照してください。
+参照してください。集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで
+動かす`tests/web/`の検査を品質ゲートで実行します（[ADR 0030](docs/adr/0030-test-web-tools-with-node-and-jsdom.md)）。
+
+集結タイムライン計算と周期ウェーブタイマーは、ページ内のタブで複数の計算機とタイマーを持てます。
+周期ウェーブタイマーの各タブは、集結タイムライン計算のどのタブの結果を使うかを選んで読み込めます。
 
 各ツールの機能、入出力、計算規則、既知の不具合は
 [ブラウザ用補助ツール 要件定義書](docs/requirements/web-tools/README.md)で管理します。

@@ -1,8 +1,15 @@
 name: 品質チェック
 
 on:
+  # 作業branchはPull Requestで検証し、同じコミットに対してjobを2回実行しない（ADR 0028）。
   push:
+    branches: [main, dev]
   pull_request:
+
+concurrency:
+  # Pull Requestは番号ごとに古い実行を中止する。番号がないpushはrun_idで一意になり、中止されない。
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 env:
   # WindowsランナーのConsoleはcp1252のため、日本語の入出力をUTF-8へ統一する。
@@ -23,7 +30,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      # web/のHTMLを実物のまま検査するNode.jsとjsdom（ADR 0030）。
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
       - name: 依存関係をインストール
         run: python -m pip install -e ".[dev]"
+      - name: Node.jsの依存関係をインストール
+        run: npm ci
       - name: 品質ゲートを実行
         run: python tools/check.py

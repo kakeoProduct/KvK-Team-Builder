@@ -144,6 +144,52 @@
     letter-spacing: 1px;
   }
   .empty { color: #999; font-size: 13px; padding: 8px 0; text-align: center; }
+  button.small { padding: 6px 12px; font-size: 13px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 3px solid #1d4ed8;
+    outline-offset: 2px;
+  }
+
+  /* --- ページ内タブ（WAVE-060〜WAVE-066） --- */
+  .tabbar { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+  /* 狭い画面でもタブ追加のボタンを折り返さず、タブの並びの側を横にスクロールさせる */
+  .tabbar > button { flex: 0 0 auto; white-space: nowrap; }
+  .tablist {
+    display: flex; gap: 4px; flex: 1 1 auto; min-width: 0;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 4px 0;
+  }
+  .tablist .tab {
+    flex: 0 0 auto; white-space: nowrap;
+    background: #e4e7ee; color: #333; border: 1px solid #cfd4de; border-bottom: none;
+    border-radius: 8px 8px 0 0; padding: 8px 14px; font-size: 14px;
+  }
+  /* 選択中は色に加え、太字と上辺の帯で区別する */
+  .tablist .tab[aria-selected="true"] {
+    background: #fff; color: #111; font-weight: bold; box-shadow: inset 0 3px 0 #4a6cf7;
+  }
+  .tablist .tab .tab-run { font-variant-numeric: tabular-nums; }
+  .tab-tools { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+  .tab-tools input[type="text"] {
+    width: 200px; max-width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;
+  }
+
+  /* --- 計算元（WAVE-070）。貼り付け欄と違い、画面幅900px以下でも表示する --- */
+  .source-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .source-row select { max-width: 100%; }
+  /* 狭い画面で選択欄の文言が長くても、読み込むボタンを押しつぶさず、選択欄の側を縮める */
+  .source-row .field { min-width: 0; max-width: 100%; }
+  .source-row .unit-row { flex-wrap: wrap; max-width: 100%; }
+  .source-row .unit-row select { flex: 1 1 12em; min-width: 0; }
+  .source-row .unit-row button { flex: 0 0 auto; white-space: nowrap; }
+  .source-status { font-size: 13px; color: #333; padding-bottom: 8px; }
+  .source-status.warning { color: #8a4b00; font-weight: bold; }
+  /* 別のブラウザのタブでの削除で計測を終えたことを、「⚠」と文言で知らせる（WAVE-053） */
+  .external-notice { color: #8a4b00; font-weight: bold; font-size: 13px; margin-bottom: 12px; }
+  .external-notice:empty { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -257,27 +303,42 @@
 
 
 <h1>周期ウェーブタイマー</h1>
-<div class="sub">スタートで1個目が始まり、周期ごとに次の予定を自動追加。各予定はMAX秒で消えます。</div>
+<div class="sub">スタートで1個目が始まり、周期ごとに次の予定を自動追加。各予定はMAX秒で消えます。タブごとに別のタイマーを同時に動かせます。</div>
+
+<div class="tabbar">
+  <div class="tablist" role="tablist" id="tabList" aria-label="タイマーのタブ"></div>
+  <button type="button" id="addTabBtn" class="secondary">+ タブ追加</button>
+</div>
+<div class="external-notice" id="externalNotice" role="status" aria-live="polite"></div>
+
+<div id="tabPanel" role="tabpanel">
 
 <div class="card">
   <h2>設定</h2>
+  <div class="tab-tools">
+    <div class="field">
+      <label for="tabNameInput">タブ名</label>
+      <input type="text" id="tabNameInput" autocomplete="off">
+    </div>
+    <button type="button" id="deleteTabBtn" class="danger small">このタブを削除</button>
+  </div>
   <div class="settings-row">
     <div class="field">
       <label>周期</label>
       <div class="unit-row">
-        <input type="number" id="periodMin" value="0" min="0" step="1"><span>分</span>
-        <input type="number" id="periodSec" value="10" min="0" max="59" step="1"><span>秒</span>
+        <input type="number" id="periodMin" value="0" min="0" step="1" aria-label="周期（分）"><span>分</span>
+        <input type="number" id="periodSec" value="10" min="0" max="59" step="1" aria-label="周期（秒）"><span>秒</span>
       </div>
     </div>
     <div class="field">
       <label>MAX</label>
       <div class="unit-row">
-        <input type="number" id="maxMin" value="0" min="0" step="1"><span>分</span>
-        <input type="number" id="maxSec" value="30" min="0" max="59" step="1"><span>秒</span>
+        <input type="number" id="maxMin" value="0" min="0" step="1" aria-label="MAX（分）"><span>分</span>
+        <input type="number" id="maxSec" value="30" min="0" max="59" step="1" aria-label="MAX（秒）"><span>秒</span>
       </div>
     </div>
     <div class="field">
-      <label>MAX＋◯秒まで表示</label>
+      <label for="extraDisplaySec">MAX＋◯秒まで表示</label>
       <input type="number" id="extraDisplaySec" value="3" min="0" step="1">
     </div>
     <div class="controls">
@@ -285,6 +346,16 @@
       <button id="stopBtn" class="secondary" disabled>ストップ</button>
       <button id="resetBtn" class="danger">リセット</button>
     </div>
+  </div>
+  <div class="source-row">
+    <div class="field">
+      <label for="sourceSelect">計算元（集結タイムライン計算のタブ）</label>
+      <div class="unit-row">
+        <select id="sourceSelect"></select>
+        <button type="button" id="loadSourceBtn" class="secondary small">読み込む</button>
+      </div>
+    </div>
+    <div class="source-status" id="sourceStatus" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -299,31 +370,16 @@
 <div class="col-side">
 <div class="card">
   <h2>集結タイムライン計算の結果を貼り付け</h2>
-  <textarea id="pasteBox" class="paste-box" placeholder="「集結タイムライン計算」で出力したテキストをここに貼り付けてください。自動的に保存されます（このブラウザ内のみ）。"></textarea>
+  <textarea id="pasteBox" class="paste-box" aria-label="集結タイムライン計算の結果" placeholder="「集結タイムライン計算」で出力したテキストをここに貼り付けてください。自動的に保存されます（このブラウザ内のみ）。"></textarea>
   <div class="save-status" id="saveStatus">&nbsp;</div>
 </div>
 </div>
 
 </div>
 
+</div>
+
 <script>
-let running = false;
-let items = []; // {num, start(ms, performance.now), remaining}
-let itemCounter = 0;
-let spawnTimeoutId = null;
-let rafId = null;
-let period = 10;
-let maxLife = 30;
-let extraDisplaySec = 3;
-let pausedAt = null; // ストップした瞬間のperformance.now()（表示を凍結するため）
-let hasStarted = false;
-
-function getRefNow() {
-  if (running) return performance.now();
-  if (pausedAt !== null) return pausedAt;
-  return performance.now();
-}
-
 const periodMinInput = document.getElementById("periodMin");
 const periodSecInput = document.getElementById("periodSec");
 const maxMinInput = document.getElementById("maxMin");
@@ -334,6 +390,59 @@ const stopBtn = document.getElementById("stopBtn");
 const resetBtn = document.getElementById("resetBtn");
 const itemStack = document.getElementById("itemStack");
 const emptyMsg = document.getElementById("emptyMsg");
+const tabList = document.getElementById("tabList");
+const tabPanel = document.getElementById("tabPanel");
+const tabNameInput = document.getElementById("tabNameInput");
+const deleteTabBtn = document.getElementById("deleteTabBtn");
+const sourceSelect = document.getElementById("sourceSelect");
+const loadSourceBtn = document.getElementById("loadSourceBtn");
+const sourceStatus = document.getElementById("sourceStatus");
+const externalNotice = document.getElementById("externalNotice");
+
+const settingInputs = [periodMinInput, periodSecInput, maxMinInput, maxSecInput, extraDisplayInput];
+const DEFAULT_SETTINGS = { periodMin: "0", periodSec: "10", maxMin: "0", maxSec: "30", extraDisplaySec: "3" };
+
+// タブ（WAVE-060）: {id, seq, name, settings, timelineText, source, run, blocks, cycleLen}
+// runは計測の状態で保存しない。各タブの予定はスタート時刻からの経過で毎回求めるため、
+// 表示していないタブも計測を続ける（WAVE-061）。
+let tabSeq = 0;
+let waveTabs = [];
+let activeTabId = null;
+let rafId = null;
+
+function idleRun() {
+  return { running: false, hasStarted: false, baseTime: 0, pausedAt: null, period: 10, maxLife: 30, extraDisplaySec: 3 };
+}
+
+function activeTab() {
+  return waveTabs.find(t => t.id === activeTabId) || null;
+}
+
+function tabLabel(t) {
+  return (t.name || "").trim() || `タイマー${t.seq}`;
+}
+
+function createTab(settings = DEFAULT_SETTINGS, timelineText = "") {
+  tabSeq += 1;
+  const t = {
+    id: `w${tabSeq}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    seq: tabSeq, name: `タイマー${tabSeq}`,
+    settings: { ...settings }, timelineText, source: null, legacyTimeline: false, run: idleRun(),
+  };
+  reparseTimeline(t);
+  return t;
+}
+
+// ストップした瞬間のperformance.now()で表示を凍結する
+function getRefNow(t) {
+  if (t.run.running) return performance.now();
+  if (t.run.pausedAt !== null) return t.run.pausedAt;
+  return performance.now();
+}
+
+function elapsedOf(t) {
+  return t.run.hasStarted ? (getRefNow(t) - t.run.baseTime) / 1000 : 0;
+}
 
 function formatElapsed(sec) {
   const sign = sec < 0 ? "-" : "";
@@ -345,52 +454,40 @@ function formatElapsed(sec) {
   return `${sign}${pad(minutes)}:${pad(seconds)}.${tenths}`;
 }
 
-let baseTime = 0; // スタートを押した瞬間のperformance.now()
-
-function scheduleSpawn(k) {
-  // k = 1始まりの予定番号。baseTimeからの絶対時刻で狙いを定め、そこから「今」を引いた分だけ待つ
-  // （相対時間の積み上げにしない。前は先出し表示のためのリード時間があったが廃止）。
-  const nominalOffsetMs = (k - 1) * period * 1000;
-  const targetFireTime = baseTime + nominalOffsetMs;
-  const fireDelay = Math.max(0, targetFireTime - performance.now());
-  spawnTimeoutId = setTimeout(() => {
-    if (!running) return;
-    itemCounter += 1;
-    const nominalStart = baseTime + nominalOffsetMs;
-    items.push({ num: itemCounter, start: nominalStart, remaining: maxLife });
-    scheduleSpawn(k + 1);
-  }, fireDelay);
-}
-
-function loopRender() {
-  const now = getRefNow();
-  items.forEach(it => {
-    it.remaining = maxLife - (now - it.start) / 1000;
-  });
-  items = items.filter(it => it.remaining > -extraDisplaySec);
-
-  renderTimelineStatus();
-  renderStack();
-
-  if (running) {
-    rafId = requestAnimationFrame(loopRender);
-  } else {
-    rafId = null;
+// k個目の予定はスタート時刻 + (k - 1) × 周期に始まる（WAVE-010）。経過時間が
+// MAX + 表示延長に達した予定は除く（WAVE-012）。絶対時刻から求めるため誤差を積み重ねない（WAVE-011）。
+function itemsOf(t) {
+  const run = t.run;
+  if (!run.hasStarted) return [];
+  const elapsedMs = getRefNow(t) - run.baseTime;
+  const elapsed = elapsedMs / 1000;
+  const lifetime = run.maxLife + run.extraDisplaySec;
+  const last = Math.floor(elapsed / run.period) + 1;
+  const first = Math.max(1, Math.floor((elapsed - lifetime) / run.period));
+  const items = [];
+  for (let k = first; k <= last; k++) {
+    // 秒の引き算では0.1秒の切り捨てが誤差でずれるため、ミリ秒で差を取る
+    const age = (elapsedMs - (k - 1) * run.period * 1000) / 1000;
+    const remaining = run.maxLife - age;
+    if (age >= 0 && remaining > -run.extraDisplaySec) items.push({ num: k, age });
   }
+  return items;
 }
 
 function renderStack() {
-  const sorted = [...items].sort((a, b) => a.num - b.num);
+  const t = activeTab();
+  const { activePatternHeaders, waitingPatterns } = timelineStatus(t);
+  const sorted = itemsOf(t);
   itemStack.innerHTML = "";
   emptyMsg.style.display = sorted.length ? "none" : "block";
   sorted.forEach((it, index) => {
     const div = document.createElement("div");
-    const numText = formatElapsed(maxLife - it.remaining);
+    const numText = formatElapsed(it.age);
     if (index === 0) {
       div.className = "item-card with-timeline";
       const patternsHtml = activePatternHeaders.length
         ? activePatternHeaders.map(h => `<div>${h}</div>`).join("")
-        : (timelineBlocks.length ? "" : `<div class="empty-note">タイムラインのテキストが貼り付けられていません</div>`);
+        : (t.blocks.length ? "" : `<div class="empty-note">タイムラインのテキストが貼り付けられていません</div>`);
       div.innerHTML = `
         <div class="item-label">${index + 1}個目</div>
         <div class="item-num-wrap"><div class="item-num">${numText}</div></div>
@@ -420,6 +517,18 @@ function renderStack() {
   }
 }
 
+// 毎フレーム、表示中のタブを描き直し、計測中のタブの見出しの経過時間を進める。
+function loopRender() {
+  rafId = null;
+  renderStack();
+  updateTabIndicators();
+  if (waveTabs.some(t => t.run.running)) rafId = requestAnimationFrame(loopRender);
+}
+
+function ensureLoop() {
+  if (rafId === null && waveTabs.some(t => t.run.running)) rafId = requestAnimationFrame(loopRender);
+}
+
 function readMinSec(minInput, secInput) {
   const min = parseInt(minInput.value, 10) || 0;
   const sec = parseInt(secInput.value, 10) || 0;
@@ -427,86 +536,135 @@ function readMinSec(minInput, secInput) {
 }
 
 function setInputsDisabled(disabled) {
-  periodMinInput.disabled = disabled;
-  periodSecInput.disabled = disabled;
-  maxMinInput.disabled = disabled;
-  maxSecInput.disabled = disabled;
-  extraDisplayInput.disabled = disabled;
+  settingInputs.forEach(el => { el.disabled = disabled; });
 }
 
-// --- 設定値の自動保存（このブラウザのみ） ---
-const SETTINGS_STORAGE_KEY = "waveTimerSettings";
-const settingInputs = [periodMinInput, periodSecInput, maxMinInput, maxSecInput, extraDisplayInput];
-
-function saveSettings() {
-  try {
-    const data = {};
-    settingInputs.forEach(el => { data[el.id] = el.value; });
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {}
+function applyRunControls() {
+  const t = activeTab();
+  const running = t.run.running;
+  // 計測中のタブの設定が別のブラウザのタブで変わっても、計測に使っている値を表示し続ける（WAVE-053）
+  const shown = running ? t.run.settings : t.settings;
+  settingInputs.forEach(el => { el.value = shown[el.id]; });
+  startBtn.disabled = running;
+  stopBtn.disabled = !running;
+  setInputsDisabled(running);
 }
 
-function loadSettings() {
+// --- 設定、タイムライン、計算元の自動保存（このブラウザのみ。WAVE-050〜WAVE-053） ---
+const WAVE_STORAGE_KEY = "waveTimerTabs";
+const LEGACY_SETTINGS_KEY = "waveTimerSettings";
+const LEGACY_PASTE_KEY = "waveTimerPastedTimeline";
+
+// 別のブラウザのタブの保存を読み直している間は保存しない（WAVE-053）
+let applyingExternalUpdate = false;
+
+function saveWaveState() {
+  if (applyingExternalUpdate) return true;
   try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    settingInputs.forEach(el => {
-      if (data[el.id] !== undefined) el.value = data[el.id];
+    localStorage.setItem(WAVE_STORAGE_KEY, JSON.stringify({
+      version: 1, tabSeq, activeTabId,
+      tabs: waveTabs.map(t => ({
+        id: t.id, seq: t.seq, name: t.name, settings: t.settings,
+        timelineText: t.timelineText, source: t.source, legacyTimeline: t.legacyTimeline,
+      })),
+    }));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function readStoredJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function restoreTabs() {
+  const saved = readStoredJson(WAVE_STORAGE_KEY);
+  if (saved && Array.isArray(saved.tabs) && saved.tabs.length) {
+    waveTabs = saved.tabs.map(t => {
+      const tab = {
+        id: t.id, seq: t.seq, name: t.name || "",
+        settings: { ...DEFAULT_SETTINGS, ...(t.settings || {}) },
+        timelineText: typeof t.timelineText === "string" ? t.timelineText : "",
+        source: t.source || null, legacyTimeline: Boolean(t.legacyTimeline), run: idleRun(),
+      };
+      reparseTimeline(tab);
+      return tab;
     });
-  } catch (e) {}
+    tabSeq = Math.max(saved.tabSeq || 0, ...waveTabs.map(t => t.seq || 0));
+    activeTabId = waveTabs.some(t => t.id === saved.activeTabId) ? saved.activeTabId : waveTabs[0].id;
+    return;
+  }
+
+  // 旧形式の設定と貼り付けは最初のタブへ移す。旧キーは読むだけで変えない（WAVE-052）。
+  const settings = { ...DEFAULT_SETTINGS };
+  const legacySettings = readStoredJson(LEGACY_SETTINGS_KEY);
+  if (legacySettings) {
+    Object.keys(DEFAULT_SETTINGS).forEach(id => {
+      if (legacySettings[id] !== undefined) settings[id] = legacySettings[id];
+    });
+  }
+  let pasted = "";
+  try {
+    const saved = localStorage.getItem(LEGACY_PASTE_KEY);
+    if (saved !== null) pasted = saved;
+  } catch (e) {
+    // localStorageが使えない環境では何もしない
+  }
+  const first = createTab(settings, pasted);
+  // 旧形式の貼り付けは修正前の計算の結果のため、計算し直すよう知らせる（WAVE-077）
+  first.legacyTimeline = pasted.trim() !== "";
+  waveTabs = [first];
+  activeTabId = first.id;
 }
 
-settingInputs.forEach(el => el.addEventListener("input", saveSettings));
-loadSettings();
+settingInputs.forEach(el => el.addEventListener("input", () => {
+  activeTab().settings[el.id] = el.value;
+  saveWaveState();
+}));
 
 startBtn.addEventListener("click", () => {
-  if (running) return;
-  period = Math.max(1, readMinSec(periodMinInput, periodSecInput));
-  maxLife = Math.max(1, readMinSec(maxMinInput, maxSecInput));
-  extraDisplaySec = Math.max(0, parseInt(extraDisplayInput.value, 10) || 0);
-  running = true;
-  pausedAt = null;
-  hasStarted = true;
-  items = [];
-  itemCounter = 0;
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  setInputsDisabled(true);
-  baseTime = performance.now();
-  scheduleSpawn(1);
-  if (!rafId) rafId = requestAnimationFrame(loopRender);
+  const t = activeTab();
+  if (t.run.running) return;
+  t.run = {
+    running: true,
+    hasStarted: true,
+    baseTime: performance.now(),
+    pausedAt: null,
+    period: Math.max(1, readMinSec(periodMinInput, periodSecInput)),
+    maxLife: Math.max(1, readMinSec(maxMinInput, maxSecInput)),
+    extraDisplaySec: Math.max(0, parseInt(extraDisplayInput.value, 10) || 0),
+    settings: { ...t.settings },
+  };
+  applyRunControls();
+  renderStack();
+  updateTabIndicators();
+  ensureLoop();
 });
 
 stopBtn.addEventListener("click", () => {
-  running = false;
-  pausedAt = performance.now();
-  clearTimeout(spawnTimeoutId);
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  setInputsDisabled(false);
-  renderTimelineStatus();
+  const t = activeTab();
+  if (!t.run.running) return;
+  t.run.running = false;
+  t.run.pausedAt = performance.now();
+  applyRunControls();
   renderStack();
+  updateTabIndicators();
 });
 
 resetBtn.addEventListener("click", () => {
-  running = false;
-  pausedAt = null;
-  hasStarted = false;
-  clearTimeout(spawnTimeoutId);
-  cancelAnimationFrame(rafId);
-  rafId = null;
-  items = [];
-  itemCounter = 0;
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  setInputsDisabled(false);
-  renderTimelineStatus();
+  activeTab().run = idleRun();
+  applyRunControls();
   renderStack();
+  updateTabIndicators();
 });
 
-// --- 右側：集結タイムライン結果の貼り付け欄（このブラウザのlocalStorageに自動保存） ---
-const PASTE_STORAGE_KEY = "waveTimerPastedTimeline";
+// --- 右側：集結タイムライン結果の貼り付け欄（表示中のタブのタイムライン） ---
 const pasteBox = document.getElementById("pasteBox");
 const saveStatus = document.getElementById("saveStatus");
 let saveStatusTimer = null;
@@ -523,43 +681,31 @@ function fitPasteBoxFont() {
   }
 }
 
-function loadPasteBox() {
-  try {
-    const saved = localStorage.getItem(PASTE_STORAGE_KEY);
-    if (saved !== null) pasteBox.value = saved;
-  } catch (e) {
-    // localStorageが使えない環境では何もしない
-  }
-  fitPasteBoxFont();
-}
-
 window.addEventListener("resize", fitPasteBoxFont);
 
-function savePasteBox() {
-  try {
-    localStorage.setItem(PASTE_STORAGE_KEY, pasteBox.value);
-    saveStatus.textContent = "保存しました";
-  } catch (e) {
-    saveStatus.textContent = "この環境では保存できません";
-  }
+function showSaveStatus(saved) {
+  saveStatus.textContent = saved ? "保存しました" : "この環境では保存できません";
   clearTimeout(saveStatusTimer);
-  saveStatusTimer = setTimeout(() => { saveStatus.textContent = " "; }, 1500);
+  saveStatusTimer = setTimeout(() => { saveStatus.textContent = " "; }, 1500);
 }
 
+// 手で編集したタイムラインは計算元との関連を外す（WAVE-075）
 pasteBox.addEventListener("input", () => {
+  const t = activeTab();
+  t.timelineText = pasteBox.value;
+  t.source = null;
+  t.legacyTimeline = false;
+  reparseTimeline(t);
   fitPasteBoxFont();
-  savePasteBox();
-  reparseTimeline();
+  showSaveStatus(saveWaveState());
+  renderSourceStatus();
+  renderStack();
 });
-loadPasteBox();
 
 // --- タイムライン進行状況：貼り付けたテキスト（1週分）を無限ループとして扱う。
 //     ①②③...の最後のパターンが終わったら、また最初のパターンから繰り返す。
 //     進行中は未終了のパターンだけ表示。全部終わった瞬間（ループの境目）だけ全パターンを表示。 ---
-let timelineBlocks = []; // [{header, startSec, endSec}]
-let activePatternHeaders = [];
-let waitingPatterns = []; // [{header, numText}] 次の周を待っているパターン（大きな時計カードで表示）
-let parsedCycleLen = null; // テキスト内の「周期：」の行から読み取った、本当の1周の長さ（秒）
+// タブごとに、blocks: [{header, startSec, endSec}] と cycleLen（「周期：」の行から読んだ1周の秒数）を持つ。
 
 function parseCycleLength(text) {
   const m = text.match(/周期[：:]\s*(\d{1,3})分(\d{1,2})秒/) || text.match(/周期[：:]\s*(\d{1,3}):(\d{2})/);
@@ -593,42 +739,295 @@ function parseTimeline(text) {
   return blocks.filter(b => b.endSec !== null);
 }
 
-function reparseTimeline() {
-  timelineBlocks = parseTimeline(pasteBox.value);
-  parsedCycleLen = parseCycleLength(pasteBox.value);
-  renderTimelineStatus();
-  renderStack();
+function reparseTimeline(t) {
+  t.blocks = parseTimeline(t.timelineText);
+  t.cycleLen = parseCycleLength(t.timelineText);
 }
 
-function renderTimelineStatus() {
-  const elapsedSec = hasStarted ? (getRefNow() - baseTime) / 1000 : 0;
-  activePatternHeaders = [];
-  waitingPatterns = [];
-  if (timelineBlocks.length === 0) return;
+function timelineStatus(t) {
+  const status = { activePatternHeaders: [], waitingPatterns: [] };
+  const blocks = t.blocks;
+  const elapsedSec = elapsedOf(t);
+  if (blocks.length === 0) return status;
 
-  const firstStart = Math.min(...timelineBlocks.map(b => b.startSec));
-  const lastEnd = Math.max(...timelineBlocks.map(b => b.endSec));
-  if (elapsedSec < firstStart) return; // まだ1周目も始まっていない
+  const firstStart = Math.min(...blocks.map(b => b.startSec));
+  const lastEnd = Math.max(...blocks.map(b => b.endSec));
+  if (elapsedSec < firstStart) return status; // まだ1周目も始まっていない
 
   // 「周期：」の行があればそれを優先（行軍・帰還・クールダウンを含む本当の1周の長さ）。
   // 無ければ発起時刻の範囲から簡易計算（フォールバック）。
-  const cycleLen = Math.max(1, parsedCycleLen !== null ? parsedCycleLen : (lastEnd - firstStart));
+  const cycleLen = Math.max(1, t.cycleLen !== null ? t.cycleLen : (lastEnd - firstStart));
   const cyclePos = firstStart + ((elapsedSec - firstStart) % cycleLen);
 
   // パターンごとに独立して判定：今の周でまだ終わっていなければ小さいリストに、
   // すでに終わっていれば次の周でまた始まるまでのマイナスカウントダウンを
   // 大きな時計表示の専用カードで見せる（waitingPatterns）。
-  timelineBlocks.forEach(b => {
+  blocks.forEach(b => {
     if (cyclePos < b.endSec) {
-      activePatternHeaders.push(b.header);
+      status.activePatternHeaders.push(b.header);
     } else {
       const remain = (b.startSec + cycleLen) - cyclePos;
-      waitingPatterns.push({ header: b.header, remain });
+      status.waitingPatterns.push({ header: b.header, remain });
     }
+  });
+  return status;
+}
+
+// --- 計算元：集結タイムライン計算の保存データを読むだけで、書き換えない（WAVE-070〜WAVE-076） ---
+const SIEGE_STORAGE_KEY = "siegeCalcTabs";
+
+function readSiegeTabs() {
+  const saved = readStoredJson(SIEGE_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.tabs)) return [];
+  return saved.tabs.map(t => ({
+    id: t.id,
+    label: (t.name || "").trim() || `計算${t.seq}`,
+    result: t.result || null,
+  }));
+}
+
+// 保存の通知による更新では、利用者が選び直した計算元を保つ。タブを表示したときだけ、
+// そのタブの読み込み済みの計算元を選ぶ（WAVE-074）
+function renderSourceOptions(preferLoadedSource = false) {
+  const siegeTabs = readSiegeTabs();
+  const source = activeTab().source;
+  const previous = sourceSelect.value;
+  sourceSelect.innerHTML = "";
+  if (siegeTabs.length === 0) {
+    const option = document.createElement("option");
+    option.textContent = "集結タイムライン計算のタブがありません";
+    sourceSelect.appendChild(option);
+    sourceSelect.disabled = true;
+    loadSourceBtn.disabled = true;
+    return;
+  }
+  siegeTabs.forEach(s => {
+    const option = document.createElement("option");
+    option.value = s.id;
+    option.textContent = s.result && s.result.ok ? s.label : `${s.label}（計算結果なし）`;
+    sourceSelect.appendChild(option);
+  });
+  const ids = siegeTabs.map(s => s.id);
+  const loaded = source && ids.includes(source.siegeTabId) ? source.siegeTabId : null;
+  if (preferLoadedSource && loaded) sourceSelect.value = loaded;
+  else if (ids.includes(previous)) sourceSelect.value = previous;
+  else if (loaded) sourceSelect.value = loaded;
+  sourceSelect.disabled = false;
+  loadSourceBtn.disabled = false;
+}
+
+// 警告は「⚠」と文言で示し、太字と色は補助として重ねる（WAVE-073）
+function showSourceStatus(text, warning) {
+  sourceStatus.textContent = text;
+  sourceStatus.classList.toggle("warning", warning);
+}
+
+function renderSourceStatus() {
+  const t = activeTab();
+  const source = t.source;
+  if (!source) {
+    if (t.legacyTimeline) showSourceStatus("⚠ 旧形式から移したタイムラインです。集結タイムライン計算で計算し直して読み込んでください", true);
+    else showSourceStatus("", false);
+    return;
+  }
+  const current = readSiegeTabs().find(s => s.id === source.siegeTabId);
+  if (!current) {
+    showSourceStatus(`⚠ 計算元のタブ「${source.siegeTabName}」は削除されています`, true);
+  } else if (current.result && current.result.revision !== source.revision && !current.result.ok) {
+    showSourceStatus("⚠ 計算元の最新の計算は結果を出せませんでした。読み込み済みのタイムラインを使っています", true);
+  } else if (!current.result || current.result.revision !== source.revision) {
+    showSourceStatus("⚠ 計算元が更新されています。もう一度読み込むと反映します", true);
+  } else {
+    showSourceStatus(`計算元：${current.label}から読み込み済み`, false);
+  }
+}
+
+// 押した時点の計算結果を取り込む。以後の計算し直しでは変わらない（WAVE-071）
+loadSourceBtn.addEventListener("click", () => {
+  const chosen = readSiegeTabs().find(s => s.id === sourceSelect.value);
+  if (!chosen || !chosen.result || !chosen.result.ok) {
+    showSourceStatus("このタブには読み込める計算結果がありません", true);
+    return;
+  }
+  const t = activeTab();
+  t.timelineText = chosen.result.output;
+  t.source = { siegeTabId: chosen.id, siegeTabName: chosen.label, revision: chosen.result.revision };
+  t.legacyTimeline = false;
+  reparseTimeline(t);
+  pasteBox.value = t.timelineText;
+  fitPasteBoxFont();
+  showSaveStatus(saveWaveState());
+  renderSourceStatus();
+  renderStack();
+});
+
+// 別のブラウザのタブで集結タイムライン計算を計算し直したときも表示を更新する（WAVE-074）
+window.addEventListener("storage", e => {
+  if (e.key === WAVE_STORAGE_KEY) {
+    applyOwnExternalUpdate();
+    return;
+  }
+  if (e.key !== null && e.key !== SIEGE_STORAGE_KEY) return;
+  renderSourceOptions();
+  renderSourceStatus();
+});
+
+// 別のブラウザのタブで自分の保存データが変わったら読み直し、後から保存した側が
+// もう一方のタブを消さないようにする。計測の状態は同じidのタブで引き継ぐ（WAVE-053）。
+function applyOwnExternalUpdate() {
+  const saved = readStoredJson(WAVE_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+  const savedIds = new Set(saved.tabs.map(t => t.id));
+  const ended = waveTabs.filter(t => t.run.running && !savedIds.has(t.id)).map(tabLabel);
+  const runs = new Map(waveTabs.map(t => [t.id, t.run]));
+  const keep = activeTabId;
+  restoreTabs();
+  waveTabs.forEach(t => { if (runs.has(t.id)) t.run = runs.get(t.id); });
+  // 表示中のタブが削除されて別のタブを表示するときは、タブの切り替えと同じく計算元を選び直す（WAVE-074）
+  const keptActive = waveTabs.some(t => t.id === keep);
+  if (keptActive) activeTabId = keep;
+  applyingExternalUpdate = true;
+  try {
+    loadActiveTab({ keepSourceSelection: keptActive });
+  } finally {
+    applyingExternalUpdate = false;
+  }
+  if (ended.length) {
+    // 知らせを消す前に続けて終えたタブも、名前を並べて知らせ続ける
+    endedTabNames.push(...ended);
+    externalNotice.textContent = `⚠ 計測中のタブ「${endedTabNames.join("」「")}」は、別のブラウザのタブで削除されたため計測を終えました`;
+  }
+  ensureLoop();
+}
+
+let endedTabNames = [];
+
+function clearExternalNotice() {
+  endedTabNames = [];
+  externalNotice.textContent = "";
+}
+
+// 別のページへ移って戻る（戻るボタンなどで復元される）間の保存は通知されないため、読み直す
+window.addEventListener("pageshow", e => {
+  if (!e.persisted) return;
+  applyOwnExternalUpdate();
+  renderSourceOptions();
+  renderSourceStatus();
+});
+
+// --- タブ（WAVE-060〜WAVE-066） ---
+function tabRunText(t) {
+  return t.run.running ? ` ▶ ${formatElapsed(elapsedOf(t))}` : "";
+}
+
+function renderTabs() {
+  tabList.innerHTML = "";
+  waveTabs.forEach(t => {
+    const btn = document.createElement("button");
+    const selected = t.id === activeTabId;
+    btn.type = "button";
+    btn.className = "tab";
+    btn.id = "tab-" + t.id;
+    btn.dataset.tabId = t.id;
+    btn.setAttribute("role", "tab");
+    btn.setAttribute("aria-selected", selected ? "true" : "false");
+    btn.setAttribute("aria-controls", "tabPanel");
+    btn.tabIndex = selected ? 0 : -1;
+    const name = document.createElement("span");
+    name.className = "tab-name";
+    name.textContent = tabLabel(t);
+    const run = document.createElement("span");
+    run.className = "tab-run";
+    run.textContent = tabRunText(t);
+    btn.append(name, run);
+    btn.addEventListener("click", () => switchTab(t.id));
+    tabList.appendChild(btn);
+  });
+  tabPanel.setAttribute("aria-labelledby", "tab-" + activeTabId);
+  deleteTabBtn.disabled = waveTabs.length <= 1;
+}
+
+// 計測中のタブには「▶」と経過時間を付け、色だけで区別しない（WAVE-062）
+function updateTabIndicators() {
+  waveTabs.forEach(t => {
+    const run = tabList.querySelector(`[data-tab-id="${t.id}"] .tab-run`);
+    if (!run) return;
+    const text = tabRunText(t);
+    if (run.textContent !== text) run.textContent = text;
   });
 }
 
-reparseTimeline();
+function loadActiveTab({ keepSourceSelection = false } = {}) {
+  const t = activeTab();
+  tabNameInput.value = tabLabel(t);
+  pasteBox.value = t.timelineText;
+  fitPasteBoxFont();
+  renderTabs();
+  applyRunControls();
+  renderSourceOptions(!keepSourceSelection);
+  renderSourceStatus();
+  renderStack();
+}
+
+function switchTab(id) {
+  if (id === activeTabId) return;
+  clearExternalNotice();
+  activeTabId = id;
+  loadActiveTab();
+  saveWaveState();
+}
+
+function focusSelectedTab() {
+  const selected = tabList.querySelector('[aria-selected="true"]');
+  if (selected) selected.focus();
+}
+
+tabList.addEventListener("keydown", e => {
+  const index = waveTabs.findIndex(t => t.id === activeTabId);
+  const last = waveTabs.length - 1;
+  const next = { ArrowRight: index === last ? 0 : index + 1, ArrowLeft: index === 0 ? last : index - 1, Home: 0, End: last }[e.key];
+  if (next === undefined) return;
+  e.preventDefault();
+  switchTab(waveTabs[next].id);
+  focusSelectedTab();
+});
+
+document.getElementById("addTabBtn").addEventListener("click", () => {
+  clearExternalNotice();
+  const t = createTab();
+  waveTabs.push(t);
+  activeTabId = t.id;
+  loadActiveTab();
+  saveWaveState();
+  focusSelectedTab();
+});
+
+tabNameInput.addEventListener("input", () => {
+  const t = activeTab();
+  t.name = tabNameInput.value;
+  const name = tabList.querySelector(`[data-tab-id="${t.id}"] .tab-name`);
+  if (name) name.textContent = tabLabel(t);
+  saveWaveState();
+});
+
+deleteTabBtn.addEventListener("click", () => {
+  if (waveTabs.length <= 1) return;
+  const t = activeTab();
+  const running = t.run.running ? "計測中のタイマーも止まります。" : "";
+  if (!confirm(`タブ「${tabLabel(t)}」を削除します。${running}このタブの設定とタイムラインは元に戻せません。`)) return;
+  clearExternalNotice();
+  const index = waveTabs.indexOf(t);
+  waveTabs.splice(index, 1);
+  activeTabId = (waveTabs[index] || waveTabs[index - 1]).id;
+  loadActiveTab();
+  saveWaveState();
+  focusSelectedTab();
+});
+
+// --- 初期表示：保存済みのタブを復元し、なければ旧形式を移す ---
+restoreTabs();
+loadActiveTab();
+saveWaveState();
 </script>
 
 </body>

@@ -14,7 +14,19 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [リリースのレビューのShouldへの対応（計算元の選択と要件の補記）](sessions/2026/2026-10-25T112118Z-source-select-and-docs.md) | current | review, web-tools | 8 |
+| [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |
+| [集結タイムライン計算と周期ウェーブタイマーのタブ化、周期計算の修正、jsdomの検査](sessions/2026/2026-10-25T085809Z-siege-wave-tabs.md) | current | ci, web-tools | 33 |
+| [Pull Request #4を作成し、devを取り込んで総力モードのADRを0029へ振り直す](sessions/2026/2026-10-25T080444Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 19 |
+| [順位表の応答とスクリーンショットのIDへの回答を総力モードの要件に反映し、再レビュー23回目で承認候補にする](sessions/2026/2026-10-23T010508Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 4 |
+| [外部サイトの名簿のgame_idへの回答とNiceを総力モードの要件に反映し、再レビュー22回目で承認候補にする](sessions/2026/2026-10-22T160033Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 7 |
+| [総力モードの要件の未確定の懸念を決め、再レビュー20回目で承認候補にする](sessions/2026/2026-10-22T104529Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 9 |
+| [CIのトリガー重複を除き、Pull Requestの古い実行を中止する](sessions/2026/2026-10-22T101851Z-ci-dedupe-triggers.md) | current | ci, github-actions | 6 |
+| [総力モードの要件の再レビュー11〜14回目のShouldに対応し、承認候補にする](sessions/2026/2026-10-22T005335Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 8 |
+| [総力モードの要件の再レビュー4〜10回目のShouldに対応する](sessions/2026/2026-10-21T161918Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 9 |
+| [総力モードの要件の再レビュー3回目の指摘に対応する](sessions/2026/2026-10-21T144016Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 9 |
 | [devとmainに分けるブランチ運用を導入する](sessions/2026/2026-10-21T143919Z-20261021t135229z-f63f9853.md) | current | ai-harness, git-workflow | 11 |
+| [総力モードの同盟移動と個人データの保持形式の要件を公開Repositoryへ移植する](sessions/2026/2026-10-21T141359Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 10 |
 | [公開に備えて実在の名前とゲーム名を伏せる](sessions/2026/2026-10-19T182741Z-d33b819a-e089-4059-8eb6-eb7120561ecb.md) | current | ai-harness, publish | 111 |
 | [作成者の仮定の前文から#44のmerge前の記述を外す](sessions/2026/2026-10-19T152314Z-team-building-requirements-adr0024-reference.md) | current | requirements, team-building | 1 |
 | [PR #44をmergeしたmainを取り込み、ADRの一覧と共有記憶の索引の競合を解消する](sessions/2026/2026-10-19T151525Z-team-building-requirements-merge-main.md) | current | requirements, team-building | 32 |
