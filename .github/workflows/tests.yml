@@ -1,8 +1,15 @@
 name: 品質チェック
 
 on:
+  # 作業branchはPull Requestで検証し、同じコミットに対してjobを2回実行しない（ADR 0028）。
   push:
+    branches: [main, dev]
   pull_request:
+
+concurrency:
+  # Pull Requestは番号ごとに古い実行を中止する。番号がないpushはrun_idで一意になり、中止されない。
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 env:
   # WindowsランナーのConsoleはcp1252のため、日本語の入出力をUTF-8へ統一する。

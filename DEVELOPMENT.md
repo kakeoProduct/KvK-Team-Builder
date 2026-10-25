@@ -351,6 +351,60 @@ python .agents/skills/maintain-project-memory/scripts/session_memory.py validate
 実装・検証し、候補を`promoted`へ更新して正本のパスを`promoted_to`へ記録します。詳細なSchema、
 昇格先、秘密情報の扱いは[プロジェクト共有記憶](docs/project-memory/README.md)を参照してください。
 
+## ブランチ運用
+
+`main`はリリース済みの版、`dev`は次のリリースへ向けた統合branchです（ADR 0027）。
+
+```text
+作業branch --PR--> dev --リリースPR（merge commit）--> main
+```
+
+- 作業branchは`git fetch origin dev`の後に`origin/dev`から作り、`dev`へPull Requestを出します。
+  `$create-github-pr`はbaseを省略すると作業branchでは`dev`、`dev`では`main`を使います
+- `main`へは`dev`からのリリースPull Requestだけをmerge commitで取り込みます。squashやrebaseは
+  使いません。`dev`のコミットはすべて`main`の祖先に含まれ、`main`にはリリースのmerge commitだけが
+  加わります
+- 緊急の修正も`dev`を経由し、取り込んだ直後にリリースPull Requestを作ります
+- `main`と`dev`へ直接コミットまたはpushしません。導入時に`main`から`dev`を作る最初の通常pushだけが
+  例外です
+- CIは`main`と`dev`へのpushと、すべてのPull Requestで実行します。Pull Requestを作る前の作業branchの
+  pushでは実行しないため、手元の`python tools/check.py`で確かめます。（作成者の仮定）Pull Requestを
+  作る前にCIで確かめたい場合は、利用者が明示したときに`$create-github-pr`でDraft Pull Requestを作ります。
+  同じPull Requestへ続けてpushすると、古い実行は中止されます。ほかのPull Requestやpushの実行は
+  中止されません。`dev`へのpush、リリースPull Request、取り込んだ後の`main`へのpushは同じ内容を
+  検証するため、リリースごとに3回実行されます（ADR 0028）
+- 利用者が運用に使うのは`main`です。READMEの手順もこれに合わせています
+
+導入時の手順は次のとおりです。番号の順に行います。手順1はClaude CodeのAgentが利用者の確認を得て
+行えます。Codexではpushを拒否する設定のため、利用者が行います。手順2以降のGitHubの設定は
+Repository管理者が設定画面で行い、Agentは行いません。手順2と手順3は、最初のリリースPull Requestを取り込む前に
+済ませます。
+
+1. `origin`に`dev`がない場合だけ、`git fetch origin main`の後に
+   `git branch --no-track dev origin/main`で`dev`を作り、`git push --set-upstream origin dev`で
+   通常pushする。手元の`main`は古いことがあるため、`origin/main`から作る
+2. Settings > Branchesで`main`と`dev`へ保護規則を加え、次を設定する
+   - 「Require a pull request before merging」を有効にし、その中の「Require approvals」は有効にしない
+     （運用者が1人で、自分のPull Requestを承認できないため。rulesetsでは必要な承認数を0にする）
+   - 「Require status checks to pass before merging」を有効にし、`ubuntu-latest / Python 3.11`、
+     `ubuntu-latest / Python 3.12`、`windows-latest / Python 3.11`、`windows-latest / Python 3.12`の
+     4つをすべて必須にする（workflow名の「品質チェック」は選べない）
+   - force pushと削除を許可しない
+   - 「Require branches to be up to date before merging」は有効にしない。`main`にはリリースの
+     merge commitが加わり`dev`に戻らないため、有効にすると2回目以降のリリースPull Requestが止まる
+   - 「Require linear history」は有効にしない。merge commitを拒否するため
+   - 「Do not allow bypassing the above settings」を有効にし、管理者の直接pushも止める
+3. Settings > Generalで「Allow merge commits」を有効にし、その「Default commit message」を
+   「Pull request title」にする。リリースPull Requestのタイトルを`type(scope): 日本語の要約`で書けば、
+   `main`へ加わるmerge commitもコミットメッセージの規約に合う。リリースPull Requestは
+   「Create a merge commit」で取り込む
+4. GitHub Pagesで`web/`を公開している場合は、公開元をSettings > Pagesで`main`のままにする。
+   `web/`の修正は`dev`へ取り込んだだけでは公開されず、リリースPull Requestの後に公開される
+5. この変更（ADR 0027）を`dev`へ取り込み、最初のリリースPull Requestで`main`へ出した後に、
+   Settings > General > Default branchを`dev`へ変える。READMEの`main`を使う案内が`main`に載る前に
+   既定branchを変えないためである。変えた後、既存の複製の利用者がそれぞれ
+   `git remote set-head origin --auto`を実行し、`origin/HEAD`を`origin/dev`へ合わせる
+
 ## プルリクエストの単位
 
 1つのPull Requestでは、1つの利用者価値または1つの技術的目的を扱います。機能変更と
