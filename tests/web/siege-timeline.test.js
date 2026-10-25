@@ -171,6 +171,59 @@ test.describe("計算規則（SIEGE-011〜SIEGE-021）", () => {
     assert.ok(has(checkProperties(EXAMPLE_1, output, reordered), "C4"));
   });
 
+  test("削りを選んでいないパターンを途中に含んでも、メインと増援で着弾を決める（SIEGE-012、SIEGE-024）", t => {
+    const dom = openSiege();
+    t.after(() => dom.window.close());
+    const testCase = {
+      settings: { kz: 5, mr: 3, gap: 1, buf: 30 },
+      members: [["メイン", "M", 10], ["増援", "R", 10], ["削り", "A", 30], ["削り", "B", 20]],
+      patterns: [["A"], [], ["B"]],
+    };
+    const { output, reference } = run(testCase, dom);
+    assert.deepEqual(checkProperties(testCase, output, reference), []);
+    assert.equal(output, [
+      "①A→メイン→増援",
+      "0分00秒 → A（5分集結）※行軍30秒（5分30秒着、6分00秒帰還）",
+      "2分21秒 → M（3分集結）※行軍10秒（5分31秒着、5分41秒帰還）",
+      "2分22秒 → R（3分集結）※行軍10秒（5分32秒着、5分42秒帰還）",
+      "",
+      "②→メイン→増援",
+      "6分11秒 → M（3分集結）※行軍10秒（9分21秒着、9分31秒帰還）",
+      "6分12秒 → R（3分集結）※行軍10秒（9分22秒着、9分32秒帰還）",
+      "",
+      "③B→メイン→増援",
+      "7分50秒 → B（5分集結）※行軍20秒（13分10秒着、13分30秒帰還）",
+      "10分01秒 → M（3分集結）※行軍10秒（13分11秒着、13分21秒帰還）",
+      "10分02秒 → R（3分集結）※行軍10秒（13分12秒着、13分22秒帰還）",
+      "",
+      "周期：11分30秒",
+    ].join("\n"));
+  });
+
+  test("削りを選んでいないパターンを含む決定的な乱数の入力100件でも、性質C1〜C10に違反しない", t => {
+    // 既存の1000件（siege-random.js）の入力を変えないよう、別のSeedで空のパターンを許して作る。
+    const rnd = createRandom(2468);
+    const dom = openSiege();
+    t.after(() => dom.window.close());
+    const failures = [];
+    let empty = 0;
+    let emptyFirst = 0;
+    let allEmpty = 0;
+    for (let i = 0; i < 100; i++) {
+      const testCase = randomSiegeCase(rnd, { allowEmptyPattern: true });
+      empty += testCase.patterns.filter(p => p.length === 0).length;
+      if (testCase.patterns[0].length === 0) emptyFirst++;
+      if (testCase.patterns.every(p => p.length === 0)) allEmpty++;
+      const { output, reference } = run(testCase, dom);
+      const violations = checkProperties(testCase, output, reference);
+      if (violations.length) failures.push({ index: i, testCase, violations });
+    }
+    assert.ok(empty > 0, "空のパターンが1件もない");
+    assert.ok(emptyFirst > 0, "先頭が空の入力が1件もない");
+    assert.ok(allEmpty > 0, "すべて空の入力が1件もない");
+    assert.deepEqual(failures.slice(0, 3), [], `違反した入力は${failures.length}件`);
+  });
+
   test("例2: 同じ削りが複数のパターンに入っても性質を満たす", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());
@@ -226,7 +279,7 @@ test.describe("計算規則（SIEGE-011〜SIEGE-021）", () => {
     assert.deepEqual(checkProperties(EXAMPLE_3, output, reference), []);
   });
 
-  test("メインが0人の場合は計算せずに知らせ、前回の参考結果は残す（SIEGE-033、KI-SIEGE-02）", t => {
+  test("メインが0人の場合は計算せずに知らせ、前回の参考結果は残す（SIEGE-033、SIEGE-034）", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());
     const previous = run(EXAMPLE_1, dom);
@@ -246,12 +299,17 @@ test.describe("計算規則（SIEGE-011〜SIEGE-021）", () => {
     assert.equal(saved.reference, previous.reference);
   });
 
-  test("パターンが0件の場合は計算せずに知らせる（SIEGE-032）", t => {
+  test("パターンが0件の場合は計算せずに知らせ、前回の参考結果は残す（SIEGE-032、SIEGE-034）", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());
-    const { output } = run({ ...EXAMPLE_1, patterns: [] }, dom);
+    const previous = run(EXAMPLE_1, dom);
+    const { output, reference } = run({ ...EXAMPLE_1, patterns: [] }, dom);
     assert.equal(output, "パターンが設定されていません。");
-    assert.equal(savedTabs(dom).tabs[0].result.ok, false);
+    assert.equal(reference, previous.reference);
+    assert.equal($(dom, "#refOutputCard").style.display, "block");
+    const saved = savedTabs(dom).tabs[0].result;
+    assert.equal(saved.ok, false);
+    assert.equal(saved.reference, previous.reference);
   });
 });
 
@@ -648,7 +706,7 @@ test.describe("保存（SIEGE-040〜SIEGE-044）", () => {
     assert.notEqual(notice(), "");
   });
 
-  test("計算できなかった後も、残した参考結果の入力と違えば注意を表示し続ける（SIEGE-043、KI-SIEGE-02）", t => {
+  test("計算できなかった後も、残した参考結果の入力と違えば注意を表示し続ける（SIEGE-043、SIEGE-034）", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());
     const notice = () => $(dom, "#resultNotice").textContent;
