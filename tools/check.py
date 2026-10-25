@@ -61,6 +61,7 @@ def _checks(fix: bool) -> tuple[Check, ...]:
         Check("Ruff lint", lint_arguments),
         Check("mypy", ("-m", "mypy", "src")),
         Check("pytest", ("-m", "pytest")),
+        Check("ブラウザ用補助ツールの検査", ("tools/check_web.py",)),
     )
 
 
@@ -95,8 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     for check in _checks(args.fix):
         if not _run(check):
             print(
-                '開発依存がない場合は python -m pip install -e ".[dev]" '
-                "を実行してください。",
+                '開発依存がない場合は python -m pip install -e ".[dev]" と '
+                "npm ci を実行してください。",
                 file=sys.stderr,
             )
             return 1

@@ -5,6 +5,10 @@
 - 置き換え: ADR 0011のうち、volume名。ADR 0021のうち、名前空間の名前と、配布名とCLI名を当面維持するとした点。ADR 0024のうち、秘密情報の範囲。
   Git管理外のチームマスタにある集結主名、代理集結主名、役割、運用メモを加える。READMEと同梱の
   `team_master.json`に載る名前を対象外とする点は維持する
+- 訂正（2026-10-25）: 公開Repositoryは`drrrkawasaki`ではなく`kakeoProduct`のアカウントの下に作られ、
+  `web/`の実際の公開先は`https://kakeoproduct.github.io/KvK-Team-Builder/web/`である。本文の旧URLは
+  404を返す（2026-10-25に確認）。判断の記録として本文は書き換えない。旧Repositoryも同じ`kakeoProduct`の
+  アカウントにあるため、ブラウザの保存先のoriginが変わらず、保存した入力が残るという結論は変わらない
 
 ## 背景
 

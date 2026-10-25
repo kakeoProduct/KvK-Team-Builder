@@ -229,3 +229,6 @@ __marimo__/
 # 並行Session用のworktree（Codexは.worktrees/、Claude Codeは.claude/worktrees/）
 .worktrees/
 .claude/worktrees/
+
+# Node.jsの依存（ADR 0030）
+node_modules/
