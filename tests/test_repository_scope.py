@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import re
 import subprocess
 import tomllib
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -170,8 +174,8 @@ def test_repository_structure_is_decided_by_adr() -> None:
 
 
 TEAM_BUILDING_REQUIREMENTS = PROJECT_ROOT / "docs" / "requirements" / "team-building"
-REQUIREMENT_ID = re.compile(r"^(?:ROS|FRM|OUT|UI|D|Q)-\d{3}$")
-ID_REFERENCE = re.compile(r"(?<![A-Za-z0-9旧-])((?:ROS|FRM|OUT|UI|D)-\d{3})(?!\d)")
+REQUIREMENT_ID = re.compile(r"^(?:ROS|FRM|OUT|UI|DAT|D|Q)-\d{3}$")
+ID_REFERENCE = re.compile(r"(?<![A-Za-z0-9旧-])((?:ROS|FRM|OUT|UI|DAT|D)-\d{3})(?!\d)")
 QUESTION_REFERENCE = re.compile(r"(?<![A-Za-z0-9旧-])(Q-\d{3})(?!\d)")
 RETIRED_QUESTION = re.compile(r"旧(Q-\d{3})")
 
@@ -233,8 +237,18 @@ def test_team_building_requirements_are_indexed_and_ids_are_unique() -> None:
             defined[requirement_id] = name
 
     whole = "\n".join(texts.values())
-    for reference in ID_REFERENCE.findall(whole):
+    references = ID_REFERENCE.findall(whole)
+    for reference in references:
         assert reference in defined, reference
+    # 照合が空振りしていないことを、接頭辞ごとに確かめる
+    assert {reference.split("-")[0] for reference in references} >= {
+        "ROS",
+        "FRM",
+        "OUT",
+        "UI",
+        "DAT",
+        "D",
+    }
 
     retired = set(RETIRED_QUESTION.findall(texts["open-questions.md"]))
     open_questions = {key for key in defined if key.startswith("Q-")}
@@ -346,3 +360,76 @@ def test_team_building_requirements_are_indexed_and_ids_are_unique() -> None:
         / "adr"
         / "0023-team-building-requirements-specification.md"
     ).is_file()
+
+
+def _requirement_row(text: str, requirement_id: str) -> str:
+    """要件の表から、指定したIDの行を返す。"""
+
+    rows = [
+        line for line in text.splitlines() if line.startswith(f"| {requirement_id} |")
+    ]
+    assert len(rows) == 1, (requirement_id, len(rows))
+    return rows[0]
+
+
+def test_data_format_examples_follow_their_definitions() -> None:
+    """data-formats.mdの架空の例が、DATの列、JSONの形、時差付きの時刻に従う。"""
+
+    text = (TEAM_BUILDING_REQUIREMENTS / "data-formats.md").read_text(encoding="utf-8")
+    columns: dict[str, list[str]] = {}
+    for requirement_id, files in (
+        ("DAT-005", ("name_map.csv",)),
+        ("DAT-006", ("power_snapshot.csv", "alliance_roster.csv")),
+    ):
+        lists = re.findall(r"列は(.*?)とする", _requirement_row(text, requirement_id))
+        assert len(lists) == len(files), (requirement_id, lists)
+        for name, listed in zip(files, lists, strict=True):
+            columns[name] = re.findall(r"`([a-z_]+)`", listed)
+
+    time_lists = re.findall(r"時刻の値（(.*?)）", _requirement_row(text, "DAT-002"))
+    assert len(time_lists) == 1, time_lists
+    time_columns = set(re.findall(r"`([a-z_]+)`", time_lists[0]))
+    source_lists = re.findall(
+        r"取得元は(.*?)のいずれか", _requirement_row(text, "DAT-003")
+    )
+    assert len(source_lists) == 1, source_lists
+    sources = set(re.findall(r"`([a-z_]+)`", source_lists[0]))
+    assert {
+        "roster_received_at",
+        "fetched_at",
+        "external_site",
+    } <= time_columns | sources
+
+    blocks = re.findall(
+        r"`([\w.]+)`[^\n]*\n\n```(csv|json)\n(.*?)```", text, flags=re.DOTALL
+    )
+    kinds = [kind for _, kind, _ in blocks]
+    # 照合が空振りしていないことを確かめる。拾えなかったコードブロックがあれば失敗する
+    assert kinds.count("csv") == text.count("```csv"), kinds
+    assert kinds.count("json") == text.count("```json"), kinds
+    assert kinds.count("csv") >= 2 and kinds.count("json") >= 1, kinds
+
+    for name, kind, body in blocks:
+        if kind == "json":
+            settings = json.loads(body)
+            for key in time_columns & settings.keys():
+                assert datetime.fromisoformat(settings[key]).tzinfo is not None, key
+            assert "roster_received_at" in settings, name
+            continue
+        rows = list(csv.reader(io.StringIO(body)))
+        assert rows[0] == columns[name], (name, rows[0])
+        assert time_columns & set(rows[0]), (name, rows[0])
+        for row in rows[1:]:
+            assert len(row) == len(rows[0]), (name, row)
+            values = dict(zip(rows[0], row, strict=True))
+            assert values["source"] in sources, (name, row)
+            # 総力のデータと名簿の外部の集計サイトの行はgame_idが欠けない
+            # （旧Q-127、旧Q-128、作成者の仮定A-26）。名前の対応表は空欄でよい
+            if name != "name_map.csv" and values["source"] == "external_site":
+                assert values["game_id"], (name, row)
+            for column in time_columns & values.keys():
+                assert datetime.fromisoformat(values[column]).tzinfo is not None, (
+                    name,
+                    column,
+                    values[column],
+                )
