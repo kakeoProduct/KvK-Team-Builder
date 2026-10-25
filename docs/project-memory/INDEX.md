@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |
 | [集結タイムライン計算と周期ウェーブタイマーのタブ化、周期計算の修正、jsdomの検査](sessions/2026/2026-10-25T085809Z-siege-wave-tabs.md) | current | ci, web-tools | 33 |
 | [Pull Request #4を作成し、devを取り込んで総力モードのADRを0029へ振り直す](sessions/2026/2026-10-25T080444Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 19 |
 | [順位表の応答とスクリーンショットのIDへの回答を総力モードの要件に反映し、再レビュー23回目で承認候補にする](sessions/2026/2026-10-23T010508Z-0ad91e89-ec67-4929-9c7a-dd158da46920.md) | current | requirements, team-building | 4 |

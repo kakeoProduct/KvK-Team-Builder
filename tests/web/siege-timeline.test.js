@@ -123,6 +123,32 @@ test.describe("計算規則（SIEGE-011〜SIEGE-021）", () => {
     assert.ok(has(checkProperties(EXAMPLE_1, output, withoutReinforcement), "C9"));
   });
 
+  test("性質の検査は、必要以上に遅い着弾（C10）を検出する", t => {
+    const dom = openSiege();
+    t.after(() => dom.window.close());
+    const { output, reference } = run(EXAMPLE_2, dom);
+    const shiftTimes = (text, seconds) => text.replace(/(\d+)分(\d{2})秒/g, (_, m, s) => {
+      const total = Number(m) * 60 + Number(s) + seconds;
+      return `${Math.floor(total / 60)}分${String(total % 60).padStart(2, "0")}秒`;
+    });
+    // 1周目の③だけを全員1秒遅らせる。参考と出力の両方で同じに変えるため、C8は成り立つ。
+    const start = reference.indexOf("\n③");
+    const end = reference.indexOf("\n【2周目】");
+    const late = reference.slice(0, start) + shiftTimes(reference.slice(start, end), 1) + reference.slice(end);
+    const lateOutput = `${late.split("\n【2周目】\n")[0].replace(/^【1周目】\n/, "")}\n${output.split("\n").pop()}`;
+    const violations = checkProperties(EXAMPLE_2, lateOutput, late);
+    assert.ok(violations.some(v => v.startsWith("C10:")), violations.join("\n"));
+    assert.ok(!violations.some(v => v.startsWith("C8:")), violations.join("\n"));
+
+    // 2周とも全時刻を1秒遅らせると、周期と時刻の差は変わらずC1〜C9は成り立ち、C10だけが違反になる。
+    const cycleLine = output.split("\n").pop();
+    const allLate = shiftTimes(reference.replace(/\n周期：.+$/, ""), 1) + "\n" + cycleLine;
+    const allLateOutput = shiftTimes(output.replace(/\n周期：.+$/, ""), 1) + "\n" + cycleLine;
+    const onlyC10 = checkProperties(EXAMPLE_2, allLateOutput, allLate);
+    assert.ok(onlyC10.length > 0);
+    assert.deepEqual([...new Set(onlyC10.map(v => v.split(":")[0]))], ["C10"], onlyC10.join("\n"));
+  });
+
   test("性質の検査は、必要以上に長い周期（C7）と2周目の順番の入れ替わり（C4）を検出する", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());
@@ -343,7 +369,109 @@ test.describe("タブ（SIEGE-050〜SIEGE-054）", () => {
   });
 });
 
-test.describe("保存（SIEGE-040〜SIEGE-042）", () => {
+test.describe("保存（SIEGE-040〜SIEGE-044）", () => {
+  // 別のブラウザのタブで保存されたときと同じ通知を送る。
+  function receiveOwnUpdate(target, source) {
+    const value = source.window.localStorage.getItem("siegeCalcTabs");
+    target.window.localStorage.setItem("siegeCalcTabs", value);
+    target.window.dispatchEvent(new target.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: value }));
+  }
+
+  test("別のブラウザのタブで保存されたら読み直し、そのタブで作ったタブを上書きで消さない（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    const b = openSiege({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+
+    // Aでタブを加えて計算する。Bは通知を受けて読み直す。
+    $(a, "#addTabBtn").click();
+    fillSiege(a, EXAMPLE_3);
+    const added = calculate(a).output;
+    receiveOwnUpdate(b, a);
+    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算2"]);
+    // Bは表示中のタブ（計算1）を表示し続ける。
+    assert.equal(selectedTab(b).textContent, "計算1");
+
+    // Bで入力を変えても、Aで加えたタブと計算結果は残る。
+    setValue(b, $(b, "#buffer"), "45");
+    const saved = savedTabs(b);
+    assert.deepEqual(saved.tabs.map(x => x.name), ["計算1", "計算2"]);
+    assert.equal(saved.tabs[1].result.output, added);
+    assert.equal(saved.tabs[0].settings.buffer, "45");
+  });
+
+  test("別のブラウザのタブで表示中のタブが削除されたら、保存データの最後に表示していたタブを表示する（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    $(a, "#addTabBtn").click();
+    $(a, "#addTabBtn").click();
+    clickTab(a, 1);
+    const b = openSiege({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    assert.equal(selectedTab(b).textContent, "計算2");
+    // Aで計算2を削除すると、Aは右隣の計算3を表示して保存する。Bは先頭ではなく計算3を表示する。
+    $(a, "#deleteTabBtn").click();
+    receiveOwnUpdate(b, a);
+    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算3"]);
+    assert.equal(selectedTab(b).textContent, "計算3");
+  });
+
+  test("別のブラウザのタブで表示中のタブが変わったら、その内容へ置き換える（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    const b = openSiege({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    setValue(a, $(a, "#buffer"), "50");
+    receiveOwnUpdate(b, a);
+    assert.equal($(b, "#buffer").value, "50");
+    setValue(b, $(b, "#phaseGap"), "2");
+    const saved = savedTabs(b).tabs[0].settings;
+    assert.deepEqual([saved.buffer, saved.phaseGap], ["50", "2"]);
+  });
+
+  test("読めない保存データの通知は無視する（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    $(a, "#addTabBtn").click();
+    for (const broken of [null, "{壊れたJSON", '{"version":1,"tabs":[]}']) {
+      if (broken === null) a.window.localStorage.removeItem("siegeCalcTabs");
+      else a.window.localStorage.setItem("siegeCalcTabs", broken);
+      a.window.dispatchEvent(new a.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: broken }));
+      assert.deepEqual(tabs(a).map(tab => tab.textContent), ["計算1", "計算2"], String(broken));
+      assert.equal(selectedTab(a).textContent, "計算2", String(broken));
+    }
+  });
+
+  test("戻る操作でページが復元されたら、離れていた間の保存を読み直す（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    const b = openSiege({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    $(a, "#addTabBtn").click();
+    // 通知を受けないまま、保存データだけが変わった状態で復元される。
+    b.window.localStorage.setItem("siegeCalcTabs", a.window.localStorage.getItem("siegeCalcTabs"));
+    const shown = new b.window.Event("pageshow");
+    Object.defineProperty(shown, "persisted", { value: true });
+    b.window.dispatchEvent(shown);
+    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算2"]);
+  });
+
+  test("読み直しでは保存し直さず、通知が往復しない（SIEGE-044）", t => {
+    const a = openSiege();
+    t.after(() => a.window.close());
+    const b = openSiege({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    $(a, "#addTabBtn").click();
+    let writes = 0;
+    const original = b.window.Storage.prototype.setItem;
+    b.window.Storage.prototype.setItem = function (...args) { writes += 1; return original.apply(this, args); };
+    const value = a.window.localStorage.getItem("siegeCalcTabs");
+    original.call(b.window.localStorage, "siegeCalcTabs", value);
+    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: value }));
+    assert.equal(writes, 0);
+    assert.equal(b.window.localStorage.getItem("siegeCalcTabs"), value);
+  });
+
   test("すべてのタブ、最後に表示したタブ、計算結果を保存して復元する", t => {
     const dom = openSiege();
     t.after(() => dom.window.close());

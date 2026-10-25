@@ -112,6 +112,8 @@
 
   /* --- ページ内タブ（SIEGE-050〜SIEGE-054） --- */
   .tabbar { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+  /* 狭い画面でもタブ追加のボタンを折り返さず、タブの並びの側を横にスクロールさせる */
+  .tabbar > button { flex: 0 0 auto; white-space: nowrap; }
   .tablist {
     display: flex; gap: 4px; flex: 1 1 auto; min-width: 0;
     overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 4px 0;
@@ -352,7 +354,7 @@ let tabSeq = 0;
 let siegeTabs = [];
 let activeTabId = null;
 
-// --- 入力値と計算結果の自動保存（このブラウザのみ。SIEGE-040〜SIEGE-042） ---
+// --- 入力値と計算結果の自動保存（このブラウザのみ。SIEGE-040〜SIEGE-044） ---
 // 周期ウェーブタイマーもこのキーを読む（WAVE-070）。形式を変えるときは両方の要件をそろえる。
 const SIEGE_STORAGE_KEY = "siegeCalcTabs";
 const LEGACY_STORAGE_KEY = "siegeCalcState";
@@ -392,8 +394,15 @@ function syncActiveTab() {
   settingFieldIds.forEach(id => { t.settings[id] = document.getElementById(id).value; });
 }
 
+// 別のブラウザのタブの保存を読み直している間は保存しない（SIEGE-044）
+let applyingExternalUpdate = false;
+
 function saveSiegeState() {
   syncActiveTab();
+  if (applyingExternalUpdate) {
+    renderResultNotice();
+    return;
+  }
   try {
     localStorage.setItem(SIEGE_STORAGE_KEY, JSON.stringify({
       version: 1, tabSeq, activeTabId,
@@ -738,6 +747,31 @@ deleteTabBtn.addEventListener("click", () => {
 
 settingFieldIds.forEach(id => {
   document.getElementById(id).addEventListener("input", saveSiegeState);
+});
+
+// 別のブラウザのタブで保存データが変わったら読み直し、後から保存した側が
+// もう一方のタブと計算結果を消さないようにする（SIEGE-044）。読めない保存データは無視する。
+function applyOwnExternalUpdate() {
+  const saved = readStoredJson(SIEGE_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+  const keep = activeTabId;
+  restoreTabs();
+  if (siegeTabs.some(t => t.id === keep)) activeTabId = keep;
+  applyingExternalUpdate = true;
+  try {
+    loadActiveTab();
+  } finally {
+    applyingExternalUpdate = false;
+  }
+}
+
+window.addEventListener("storage", e => {
+  if (e.key === SIEGE_STORAGE_KEY) applyOwnExternalUpdate();
+});
+
+// 別のページへ移って戻る（戻るボタンなどで復元される）間の保存は通知されないため、読み直す
+window.addEventListener("pageshow", e => {
+  if (e.persisted) applyOwnExternalUpdate();
 });
 
 // --- 計算ロジック ---

@@ -1,5 +1,5 @@
 "use strict";
-// 集結タイムライン計算の出力テキストだけから、計算結果が満たす性質C1〜C9を判定する。
+// 集結タイムライン計算の出力テキストだけから、計算結果が満たす性質C1〜C10を判定する。
 // 性質の定義はdocs/requirements/web-tools/siege-timeline.mdの「計算結果が満たす性質」にある。
 // 計算の実装を読まず、出力された時刻と入力の役割だけを使う。
 
@@ -100,6 +100,22 @@ function checkProperties(testCase, output, reference) {
     if (l.launch !== l.arrival - rally[memberRole] - march) fail("C3", `${l.label}の発起`);
     if (l.ret !== l.arrival + march) fail("C3", `${l.label}の帰還`);
   })));
+
+  // C10: 1周目の各パターンのTは、前に並ぶ行から求めた使用可能時刻で、SIEGE-012の最大値に等しい。
+  // 着弾を必要以上に遅らせる退行は、C1〜C9をすべて満たしたままになるため、ここで検出する。
+  const ready = {};
+  rounds[0].forEach((p, i) => {
+    const candidates = [0];
+    p.lines.forEach(l => {
+      const memberRole = role[l.label];
+      const march = members.find(m => m[1] === l.label)[2];
+      const lead = { 削り: 0, メイン: settings.gap, 増援: 2 * settings.gap }[memberRole];
+      candidates.push((ready[l.label] || 0) + rally[memberRole] + march - lead);
+    });
+    const expected = Math.max(...candidates);
+    if (T[0][i] !== expected) fail("C10", `1周目${p.header}のT${T[0][i]}、最小値${expected}`);
+    p.lines.forEach(l => { ready[l.label] = l.ret + settings.buf; });
+  });
 
   // C2: 2周分を通して、同じ人の次の発起が前回の帰還+バッファ以降。
   const uses = {};
