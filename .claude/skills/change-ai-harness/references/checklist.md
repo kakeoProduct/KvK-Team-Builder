@@ -27,7 +27,7 @@
       適用されない。読み取り専用の強制はHookが担い、`sandbox_mode`はHookが対象のAgentを見分ける
       目印として使う
 - [ ] TOMLの`model`（Codex）と、`tools/sync_agent_config.py`の`CLAUDE_AGENT_MODELS`と
-      `CLAUDE_AGENT_MAX_TURNS`（Claude Code）を担当の重さに合わせて決める（ADR 0030）
+      `CLAUDE_AGENT_MAX_TURNS`（Claude Code）を担当の重さに合わせて決める（ADR 0031）
 - [ ] コードレビュー用のAgentは、指示に`Must`、`Should`、`Nice`の3段階を含む
 - [ ] Agentの結果の見出しや列を変える場合は、`tools/hooks/check_review_report.py`と指示文をそろえる
 - [ ] 生成される`.claude/agents/`が編集Toolを持たない。既定と異なるToolは

@@ -29,7 +29,7 @@ CODEX_METADATA_DIRECTORY = "agents"
 CLAUDE_REVIEWER_TOOLS = "Read, Grep, Glob, Bash"
 # 既定と異なるToolが必要なAgent。証拠Reviewerは出典を開くがShellを使わない。
 CLAUDE_AGENT_TOOLS = {"evidence-reviewer": "Read, Grep, Glob, WebSearch, WebFetch"}
-# 主会話のモデルを継承させず、判断の重い担当だけ上位のモデルにする（ADR 0030）。
+# 主会話のモデルを継承させず、判断の重い担当だけ上位のモデルにする（ADR 0031）。
 # Codexのモデルは正本のTOMLの`model`で指定する。
 CLAUDE_REVIEWER_MODEL = "sonnet"
 CLAUDE_AGENT_MODELS = {

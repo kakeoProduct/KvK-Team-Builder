@@ -44,7 +44,7 @@ effort: high
 確かめる。Claude Codeでは、SessionStart HookのContextが届いていれば動いているとみなす。Codexでは、
 利用者に`/hooks`で`.codex/hooks.json`のHookを信頼済みか尋ね、信頼済みと答えた場合だけ委譲する。
 確かめられなければ、読み取り専用の強制を適用できない場合として扱う。親セッションは`auto`のままでよい
-（ADR 0030）。
+（ADR 0031）。
 
 - `kvk-domain-reviewer`: 編成ルール、時刻の意味、警告、運用出力
 - `kvk-architecture-reviewer`: 依存境界、失敗処理、互換性、セキュリティ

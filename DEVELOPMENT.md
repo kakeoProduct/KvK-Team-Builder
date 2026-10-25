@@ -227,7 +227,7 @@ Codexが解釈しないClaude Code専用の起動設定は、正本のFrontmatte
 `tools/sync_agent_config.py`の`CLAUDE_SKILL_SETTINGS`から生成物へ加えます。既定と異なる
 ToolのReview Agentは`CLAUDE_AGENT_TOOLS`で指定します。Review Agentのモデルは、Codexでは正本の
 `model`、Claude Codeでは`CLAUDE_AGENT_MODELS`で指定し、ターン上限は`CLAUDE_AGENT_MAX_TURNS`で
-指定します（ADR 0030）。
+指定します（ADR 0031）。
 Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます。
 `.claude/settings.local.json`と、ローカルのプレビュー起動設定`.claude/launch.json`は、利用者ごとの
 設定としてGit管理しません。
@@ -270,7 +270,7 @@ Bashでは、`git`の読み取り系サブコマンド、`cat`や`grep`などの
 
 Codexは、custom agentに書いた`sandbox_mode`を適用せず、Subagentは親Sessionのsandboxと承認設定を
 継承します。このため`.codex/hooks.json`へ、Claude Codeと同じScriptを登録しています。Hookを信頼して
-動いている間は、親SessionをAutoにしても、Review Agentは読み取り専用で動きます（ADR 0030）。
+動いている間は、親SessionをAutoにしても、Review Agentは読み取り専用で動きます（ADR 0031）。
 
 | Event | Script | matcher | 動作 |
 |---|---|---|---|

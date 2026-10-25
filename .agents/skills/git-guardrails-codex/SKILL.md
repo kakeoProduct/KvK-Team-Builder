@@ -21,7 +21,7 @@ Codexの`PreToolUse` HookでShellコマンドを検査し、次のGit操作を�
 ## 1. 適用範囲を決める
 
 このRepositoryでは、追跡する`.codex/hooks.json`に`tools/hooks/block_dangerous_git.py`を登録済み
-である（ADR 0030）。Projectの範囲では追加の設定をせず、`/hooks`でこのHookを信頼済みかを確かめる。
+である（ADR 0031）。Projectの範囲では追加の設定をせず、`/hooks`でこのHookを信頼済みかを確かめる。
 `.codex/hooks.json`へScriptのコピーや相対パスのHookを追記しない。保護対象を変える場合は、正本の
 `tools/hooks/`とテストを変更する。
 

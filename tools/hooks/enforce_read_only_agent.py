@@ -4,11 +4,11 @@ Claude Codeでは親Sessionが`auto`、`acceptEdits`、`bypassPermissions`のと
 `permissionMode: plan`が無視される。PreToolUse Hookの拒否は権限モードより先に評価される
 ため、`.claude/settings.json`へ登録して`plan`相当の制限を強制する。Subagent定義の
 Frontmatterへ書いたHookは、Agentファイルのあるフォルダそのものを信頼したときだけ動き、
-`claude -p`では動かないため使わない（ADR 0030）。
+`claude -p`では動かないため使わない（ADR 0031）。
 
 Codexもcustom agentの`sandbox_mode`を適用せず、Subagentは親のsandboxと承認設定を継承する。
 このため`.codex/hooks.json`へも登録する。CodexもSubagent内のHook入力へ`agent_type`を入れ、
-Shellを`Bash`、編集を`apply_patch`として同じ形で渡す（ADR 0030）。
+Shellを`Bash`、編集を`apply_patch`として同じ形で渡す（ADR 0031）。
 
 Hook入力の`agent_type`が、正本の`.codex/agents/`で`sandbox_mode = "read-only"`と宣言した
 Agentのときだけ制限する。主Sessionと他のAgentのTool呼び出しは判定せず通す。

@@ -1,5 +1,5 @@
 {
-  "description": "Git保護、Review Agentの読み取り専用の強制、レビュー結果の形式の検査（ADR 0030）",
+  "description": "Git保護、Review Agentの読み取り専用の強制、レビュー結果の形式の検査（ADR 0031）",
   "hooks": {
     "PreToolUse": [
       {

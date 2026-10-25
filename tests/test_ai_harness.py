@@ -26,7 +26,7 @@ CODE_REVIEW_AGENTS = {
 }
 EVIDENCE_REVIEW_AGENT = "evidence-reviewer"
 EXPECTED_AGENTS = CODE_REVIEW_AGENTS | {EVIDENCE_REVIEW_AGENT}
-# 判断の重い担当だけ上位のモデルを使う（ADR 0030）。
+# 判断の重い担当だけ上位のモデルを使う（ADR 0031）。
 HEAVY_REVIEW_AGENTS = {
     "kvk-architecture-reviewer",
     "kvk-requirements-reviewer",
@@ -172,7 +172,7 @@ def test_review_skill_checks_enforcement_and_incomplete_reports() -> None:
         "`.codex/hooks.json`へScriptのコピーや相対パスのHookを追記しない" in guardrail
     )
     assert "python3 .codex/hooks/" not in guardrail
-    assert "ADR 0030" in guardrail
+    assert "ADR 0031" in guardrail
 
 
 def test_review_harness_uses_human_decision_levels() -> None:
@@ -1813,7 +1813,7 @@ def test_claude_review_agents_have_no_edit_tools() -> None:
         assert frontmatter["description"] == definition["description"]
         assert frontmatter["permissionMode"] == "plan"
         assert frontmatter["effort"] == "high"
-        # 主会話のモデルを継承させず、担当の重さで固定する（ADR 0030）。
+        # 主会話のモデルを継承させず、担当の重さで固定する（ADR 0031）。
         expected_model = "opus" if path.stem in HEAVY_REVIEW_AGENTS else "sonnet"
         assert frontmatter["model"] == expected_model, path.stem
         # 過去の最大33ターンに余裕を持たせ、証拠の照合は主張の数に比例して長くなる。

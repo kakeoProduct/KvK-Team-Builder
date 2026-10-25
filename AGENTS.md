@@ -218,7 +218,7 @@ Claude Codeの`.claude/settings.json`とCodexの`.codex/hooks.json`のPreToolUse
 Workspaceを信頼した後、Codexでは利用者が`/hooks`で信頼した後にだけ動きます。主エージェントが動いていると
 確かめられない場合は、読み取り専用の強制を適用できない環境として扱います。SubagentStop Hookは、レビュー
 担当の結果に`Must`、`Should`、`Nice`、`未確定`の見出しが、`evidence-reviewer`の結果に判定表の列が
-ない場合に、1回だけ書き直させます（ADR 0030）。
+ない場合に、1回だけ書き直させます（ADR 0031）。
 修正を依頼された場合も、レビューを完了して合意した指摘だけを通常の実装フローで
 直します。単純な質問や差分のない説明では、不要な並列レビューを開始しません。
 
@@ -243,7 +243,7 @@ Web UIの新規実装、変更、レビューには`$apple-design`を使用し�
 GitHub Pull Requestの本文準備、Draft作成、Ready作成には`$create-github-pr`を使用します。
 このSkillは`.github/pull_request_template.md`と検証結果を正本とし、同じhead branchの重複を
 確認してから、利用者が作成を明示した場合だけ通常pushと`gh pr create`を行います。Codexでは
-Git保護Hookがpushを拒否するため、pushは利用者に頼みます（ADR 0030）。
+Git保護Hookがpushを拒否するため、pushは利用者に頼みます（ADR 0031）。
 CodespacesではRepository限定のfine-grained PATをCodespaces Secretの`GH_TOKEN`から利用し、
 TOKENの表示、`.env`への保存、force push、merge、Issue操作を行いません。個人所有のProjectを
 扱う場合だけ、`gh auth login --web`のOAuthトークンまたはclassic PATを、ADR 0008のスコープ上限と

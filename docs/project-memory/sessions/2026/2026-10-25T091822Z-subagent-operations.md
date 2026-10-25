@@ -37,7 +37,7 @@ related_paths:
 - AGENTS.md
 - CLAUDE.md
 - DEVELOPMENT.md
-- docs/adr/0030-subagent-models-limits-and-codex-read-only.md
+- docs/adr/0031-subagent-models-limits-and-codex-read-only.md
 - docs/adr/README.md
 - tests/test_agent_hooks.py
 - tests/test_ai_harness.py
@@ -54,16 +54,16 @@ related_paths:
 
 ## 実装結果
 
-.codex/hooks.jsonを追跡し、Git保護、enforce_read_only_agent.py、check_review_report.pyを登録した。Review Agentのmodel（Claude Code: 要件・アーキテクチャ・証拠はopus、ほかはsonnet、Codex: gpt-6.1-solとgpt-6-luna）とmaxTurns（40、アーキテクチャと証拠は60）を固定した。読み取り専用の判定をPOSIXとして行い、$、\、{}、全角の引用符を全OSで、単一引用符、^、%、!をWindowsで丸ごと拒否し、pytest、sort、findを許可リストにした。ADR 0030と規約、Skill、自己点検リスト（C17追加、C7見直し）を更新した
+.codex/hooks.jsonを追跡し、Git保護、enforce_read_only_agent.py、check_review_report.pyを登録した。Review Agentのmodel（Claude Code: 要件・アーキテクチャ・証拠はopus、ほかはsonnet、Codex: gpt-6.1-solとgpt-6-luna）とmaxTurns（40、アーキテクチャと証拠は60）を固定した。読み取り専用の判定をPOSIXとして行い、$、\、{}、全角の引用符を全OSで、単一引用符、^、%、!をWindowsで丸ごと拒否し、pytest、sort、findを許可リストにした。ADR 0031と規約、Skill、自己点検リスト（C17追加、C7見直し）を更新した
 
 ## 重要な判断
 
-- Codexはcustom agentのsandbox_modeを適用しないため、読み取り専用はClaude CodeとCodexのPreToolUse Hookで強制する（ADR 0030）
+- Codexはcustom agentのsandbox_modeを適用しないため、読み取り専用はClaude CodeとCodexのPreToolUse Hookで強制する（ADR 0031）
 - Shellごとに解釈が違う記号は、記号ごとに並べず丸ごと拒否する。利用者が承認した
 - （作成者の仮定）主Sessionは、レビュー担当と$researchを起動する前に読み取り専用の強制を確かめ、$researchへは結果を渡す。確かめられなければ逐次の確認か独立検証なしにする。利用者が/researchを直接起動した場合は独立検証をしない
 - （作成者の仮定）maxTurnsで止まった担当には続きを指示し、見出しが欠けた結果は不完全として主Sessionが確認し直す
 - （作成者の仮定）CodexではGit保護Hookがpushを拒否するため、$create-github-prと$implementはpushを利用者に頼み、push済みを確かめて続ける
-- dev側でADR 0029が使われたため、このADRを0030へ振り直した
+- dev側でADR 0029とADR 0030が使われたため、このADRを0031へ振り直した
 
 ## 検証
 
@@ -105,7 +105,7 @@ related_paths:
 - `AGENTS.md`
 - `CLAUDE.md`
 - `DEVELOPMENT.md`
-- `docs/adr/0030-subagent-models-limits-and-codex-read-only.md`
+- `docs/adr/0031-subagent-models-limits-and-codex-read-only.md`
 - `docs/adr/README.md`
 - `tests/test_agent_hooks.py`
 - `tests/test_ai_harness.py`

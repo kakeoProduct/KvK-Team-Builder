@@ -69,7 +69,7 @@ description: 現在のGitブランチと基準ブランチとの差分、Pull Re
    `--force`と`--force-with-lease`を使用しない。headが`dev`の場合はpushせず、手順3で確かめた
    `origin/dev`をそのまま使う。CodexではGit保護Hook（`.codex/hooks.json`）が通常のpushも拒否するため、
    pushせずに同じコマンドを利用者に示して実行を頼む。利用者が終えたと答えたら、`git ls-remote --heads origin <branch>`
-   のSHAがHEADと一致することを確かめてから次へ進む（ADR 0030）。
+   のSHAがHEADと一致することを確かめてから次へ進む（ADR 0031）。
 
 ## タイトルと本文を作る
 
