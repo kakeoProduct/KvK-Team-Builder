@@ -786,7 +786,9 @@ function readSiegeTabs() {
   }));
 }
 
-function renderSourceOptions() {
+// 保存の通知による更新では、利用者が選び直した計算元を保つ。タブを表示したときだけ、
+// そのタブの読み込み済みの計算元を選ぶ（WAVE-074）
+function renderSourceOptions(preferLoadedSource = false) {
   const siegeTabs = readSiegeTabs();
   const source = activeTab().source;
   const previous = sourceSelect.value;
@@ -806,8 +808,10 @@ function renderSourceOptions() {
     sourceSelect.appendChild(option);
   });
   const ids = siegeTabs.map(s => s.id);
-  if (source && ids.includes(source.siegeTabId)) sourceSelect.value = source.siegeTabId;
+  const loaded = source && ids.includes(source.siegeTabId) ? source.siegeTabId : null;
+  if (preferLoadedSource && loaded) sourceSelect.value = loaded;
   else if (ids.includes(previous)) sourceSelect.value = previous;
+  else if (loaded) sourceSelect.value = loaded;
   sourceSelect.disabled = false;
   loadSourceBtn.disabled = false;
 }
@@ -879,10 +883,12 @@ function applyOwnExternalUpdate() {
   const keep = activeTabId;
   restoreTabs();
   waveTabs.forEach(t => { if (runs.has(t.id)) t.run = runs.get(t.id); });
-  if (waveTabs.some(t => t.id === keep)) activeTabId = keep;
+  // 表示中のタブが削除されて別のタブを表示するときは、タブの切り替えと同じく計算元を選び直す（WAVE-074）
+  const keptActive = waveTabs.some(t => t.id === keep);
+  if (keptActive) activeTabId = keep;
   applyingExternalUpdate = true;
   try {
-    loadActiveTab();
+    loadActiveTab({ keepSourceSelection: keptActive });
   } finally {
     applyingExternalUpdate = false;
   }
@@ -951,14 +957,14 @@ function updateTabIndicators() {
   });
 }
 
-function loadActiveTab() {
+function loadActiveTab({ keepSourceSelection = false } = {}) {
   const t = activeTab();
   tabNameInput.value = tabLabel(t);
   pasteBox.value = t.timelineText;
   fitPasteBoxFont();
   renderTabs();
   applyRunControls();
-  renderSourceOptions();
+  renderSourceOptions(!keepSourceSelection);
   renderSourceStatus();
   renderStack();
 }

@@ -142,6 +142,45 @@ test.describe("タブと計測（WAVE-060〜WAVE-066）", () => {
     assert.equal(selectedTab(dom).textContent, "タイマー1");
   });
 
+  test("矢印キー、Home、Endでタブを切り替え、端から反対の端へ回り込む（WAVE-066）", t => {
+    const dom = openWave();
+    t.after(() => dom.window.close());
+    $(dom, "#addTabBtn").click();
+    $(dom, "#addTabBtn").click();
+    clickTab(dom, 0);
+    const press = key => dom.window.document.activeElement.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
+    tabs(dom)[0].focus();
+    press("ArrowRight");
+    assert.equal(selectedTab(dom).textContent, "タイマー2");
+    assert.equal(dom.window.document.activeElement, selectedTab(dom));
+    assert.deepEqual(tabs(dom).map(tab => tab.tabIndex), [-1, 0, -1]);
+    press("End");
+    assert.equal(selectedTab(dom).textContent, "タイマー3");
+    press("ArrowRight");
+    assert.equal(selectedTab(dom).textContent, "タイマー1");
+    press("ArrowLeft");
+    assert.equal(selectedTab(dom).textContent, "タイマー3");
+    press("Home");
+    assert.equal(selectedTab(dom).textContent, "タイマー1");
+    assert.deepEqual(tabs(dom).map(tab => tab.tabIndex), [0, -1, -1]);
+  });
+
+  test("タブを削除しても番号を再利用せず、右隣、なければ左隣を表示する（WAVE-063、WAVE-065）", t => {
+    const dom = openWave();
+    t.after(() => dom.window.close());
+    $(dom, "#addTabBtn").click();
+    $(dom, "#addTabBtn").click();
+    clickTab(dom, 1);
+    $(dom, "#deleteTabBtn").click();
+    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1", "タイマー3"]);
+    assert.equal(selectedTab(dom).textContent, "タイマー3");
+    $(dom, "#deleteTabBtn").click();
+    assert.equal(selectedTab(dom).textContent, "タイマー1");
+    $(dom, "#addTabBtn").click();
+    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1", "タイマー4"]);
+  });
+
   test("矢印キーでタブを切り替える", t => {
     const dom = openWave();
     t.after(() => dom.window.close());
@@ -335,6 +374,100 @@ test.describe("計算元の読み込み（WAVE-070〜WAVE-076）", () => {
     receiveSiegeUpdate(dom, siege);
     assert.equal($(dom, "#sourceStatus").textContent,
       "⚠ 計算元の最新の計算は結果を出せませんでした。読み込み済みのタイムラインを使っています");
+  });
+
+  test("選び直した計算元は、保存の通知で読み込み済みの計算元へ戻らない（WAVE-074）", t => {
+    const { siege, storage } = siegeStorage(t);
+    const dom = openWave({ storage });
+    t.after(() => dom.window.close());
+    $(dom, "#loadSourceBtn").click();
+    const second = $(dom, "#sourceSelect").options[1].value;
+    setValue(dom, $(dom, "#sourceSelect"), second, "change");
+
+    // 選んだ計算2を、別のブラウザのタブの集結タイムライン計算で計算する。
+    setValue(siege, $(siege, "#buffer"), "45");
+    const { output } = calculate(siege);
+    receiveSiegeUpdate(dom, siege);
+    assert.equal($(dom, "#sourceSelect").value, second);
+    $(dom, "#loadSourceBtn").click();
+    assert.equal($(dom, "#pasteBox").value, output);
+    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算2から読み込み済み");
+  });
+
+  test("選び直した計算元は、自分の保存データの読み直しでも保つ（WAVE-074）", t => {
+    const { storage } = siegeStorage(t);
+    const a = openWave({ storage });
+    t.after(() => a.window.close());
+    $(a, "#loadSourceBtn").click();
+    const b = openWave({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    const second = $(b, "#sourceSelect").options[1].value;
+    setValue(b, $(b, "#sourceSelect"), second, "change");
+    setValue(a, $(a, "#periodSec"), "20");
+    const value = a.window.localStorage.getItem("waveTimerTabs");
+    b.window.localStorage.setItem("waveTimerTabs", value);
+    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
+    assert.equal($(b, "#sourceSelect").value, second);
+    // タブを切り替えたときは、そのタブの読み込み済みの計算元（計算1）を選ぶ。
+    $(b, "#addTabBtn").click();
+    clickTab(b, 0);
+    assert.equal($(b, "#sourceSelect").value, $(b, "#sourceSelect").options[0].value);
+  });
+
+  test("選び直した計算元は、ブラウザがページを復元したときも保つ（WAVE-074）", t => {
+    const { storage } = siegeStorage(t);
+    const dom = openWave({ storage });
+    t.after(() => dom.window.close());
+    $(dom, "#loadSourceBtn").click();
+    const second = $(dom, "#sourceSelect").options[1].value;
+    setValue(dom, $(dom, "#sourceSelect"), second, "change");
+    const shown = new dom.window.Event("pageshow");
+    Object.defineProperty(shown, "persisted", { value: true });
+    dom.window.dispatchEvent(shown);
+    assert.equal($(dom, "#sourceSelect").value, second);
+  });
+
+  test("選んでいた計算元のタブが削除されたら、先頭ではなく読み込み済みの計算元を選ぶ（WAVE-074）", t => {
+    const { siege } = siegeStorage(t);
+    // 計算3を加え、計算2を計算する。読み込み済みの計算元を先頭以外に置く。
+    $(siege, "#addTabBtn").click();
+    clickTab(siege, 1);
+    calculate(siege);
+    const dom = openWave({ storage: storageOf(siege) });
+    t.after(() => dom.window.close());
+    const ids = Array.from($(dom, "#sourceSelect").options).map(o => o.value);
+    setValue(dom, $(dom, "#sourceSelect"), ids[1], "change");
+    $(dom, "#loadSourceBtn").click();
+    setValue(dom, $(dom, "#sourceSelect"), ids[2], "change");
+
+    clickTab(siege, 2);
+    $(siege, "#deleteTabBtn").click();
+    receiveSiegeUpdate(dom, siege);
+    assert.equal($(dom, "#sourceSelect").value, ids[1]);
+    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算2から読み込み済み");
+  });
+
+  test("表示中のタブが別のブラウザのタブで削除されたら、次に表示するタブの読み込み済みの計算元を選ぶ（WAVE-074、WAVE-053）", t => {
+    const { storage } = siegeStorage(t);
+    const a = openWave({ storage });
+    t.after(() => a.window.close());
+    $(a, "#loadSourceBtn").click();
+    $(a, "#addTabBtn").click();
+    const b = openWave({ storage: storageOf(a) });
+    t.after(() => b.window.close());
+    // Bはタイマー2で計算2を選ぶ（読み込まない）。
+    assert.equal(selectedTab(b).textContent, "タイマー2");
+    const ids = Array.from($(b, "#sourceSelect").options).map(o => o.value);
+    setValue(b, $(b, "#sourceSelect"), ids[1], "change");
+
+    // Aでタイマー2を削除すると、Aはタイマー1を表示して保存する。
+    $(a, "#deleteTabBtn").click();
+    const value = a.window.localStorage.getItem("waveTimerTabs");
+    b.window.localStorage.setItem("waveTimerTabs", value);
+    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
+    assert.equal(selectedTab(b).textContent, "タイマー1");
+    assert.equal($(b, "#sourceSelect").value, ids[0]);
+    assert.equal($(b, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
   });
 
   test("計算結果のないタブは読み込まない", t => {

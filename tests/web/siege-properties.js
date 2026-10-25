@@ -85,8 +85,12 @@ function checkProperties(testCase, output, reference) {
   const role = Object.fromEntries(members.map(([r, label]) => [label, r]));
   const rally = { 削り: settings.kz * 60, メイン: settings.mr * 60, 増援: settings.mr * 60 };
   const offset = { 削り: 0, メイン: settings.gap, 増援: 2 * settings.gap };
-  const T = rounds.map(round => round.map(p =>
-    Math.min(...p.lines.filter(l => role[l.label] === "削り").map(l => l.arrival))));
+  // 削りを選んでいないパターン（SIEGE-003）は、メインの着弾 - フェーズ間隔をTとする（SIEGE-014）。
+  const T = rounds.map(round => round.map(p => {
+    const kezuri = p.lines.filter(l => role[l.label] === "削り").map(l => l.arrival);
+    if (kezuri.length) return Math.min(...kezuri);
+    return Math.min(...p.lines.filter(l => role[l.label] === "メイン").map(l => l.arrival)) - settings.gap;
+  }));
 
   rounds.flat().forEach(p => p.lines.forEach(l => {
     if (l.launch < 0) fail("C1", `${l.label}の発起${l.launch}`);

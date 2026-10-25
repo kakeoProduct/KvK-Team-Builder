@@ -169,7 +169,7 @@ function createRandom(seed) {
 }
 
 // docs/requirements/web-tools/siege-timeline.mdの「計算結果が満たす性質」に書いた範囲で入力を作る。
-function randomSiegeCase(rnd) {
+function randomSiegeCase(rnd, { allowEmptyPattern = false } = {}) {
   const settings = { kz: rnd(1, 5), mr: rnd(1, 5), gap: rnd(0, 3), buf: rnd(0, 60) };
   const members = [];
   const mains = rnd(1, 2);
@@ -182,7 +182,8 @@ function randomSiegeCase(rnd) {
   const count = rnd(1, 5);
   for (let p = 0; p < count; p++) {
     const chosen = members.filter(m => m[0] === "削り" && rnd(0, 2) === 0).map(m => m[1]);
-    patterns.push(chosen.length ? chosen : ["K" + rnd(0, kezuri - 1)]);
+    if (allowEmptyPattern && rnd(0, 3) === 0) patterns.push([]);
+    else patterns.push(chosen.length ? chosen : ["K" + rnd(0, kezuri - 1)]);
   }
   return { settings, members, patterns };
 }

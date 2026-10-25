@@ -900,7 +900,7 @@ function runCalculation() {
 }
 
 // 計算結果を表示中のタブへ記録して表示する（SIEGE-040、SIEGE-041）。
-// 計算できなかった場合は前回の参考結果を残す（KI-SIEGE-02）。
+// 計算できなかった場合は前回の参考結果を残す（SIEGE-034）。
 function saveResult(ok, output, reference) {
   const t = activeTab();
   const previous = t.result;
