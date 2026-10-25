@@ -1,0 +1,9 @@
+{
+  "name": "kvk-team-builder",
+  "private": true,
+  "description": "web/のブラウザ用補助ツールを実物のHTMLで検査するための開発依存（ADR 0030）",
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "25.0.1"
+  }
+}

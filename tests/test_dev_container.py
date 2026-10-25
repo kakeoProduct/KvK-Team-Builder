@@ -20,7 +20,9 @@ def test_dev_container_uses_a_minimal_non_root_python_environment() -> None:
     assert definition["build"] == {"dockerfile": "Dockerfile", "context": ".."}
     assert definition["remoteUser"] == "vscode"
     assert definition["updateRemoteUserUID"] is True
-    assert definition["postCreateCommand"] == 'python -m pip install -e ".[dev]"'
+    assert definition["postCreateCommand"] == (
+        'python -m pip install -e ".[dev]" && npm ci'
+    )
     assert definition["customizations"]["vscode"]["extensions"] == [
         "OpenAI.chatgpt",
         "anthropic.claude-code",
