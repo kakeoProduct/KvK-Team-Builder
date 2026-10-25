@@ -2,6 +2,8 @@
 name: kvk-domain-reviewer
 description: KvK編成の変更について、ドメインルールと運用出力の退行をレビューする。
 tools: Read, Grep, Glob, Bash
+model: sonnet
+maxTurns: 40
 permissionMode: plan
 effort: high
 ---
@@ -23,5 +25,7 @@ Validator、Exporter、設定、テストの意味がずれていないか、ユ
 具体的な入力または時間枠を含める。書式の好みや推測した要件を指摘しない。検証後に
 ドメイン上の指摘が残らない場合は、その旨を明記し、契約の曖昧さを別に示す。
 確かめきれない具体的な疑いは指摘に含めず、不足している証拠を添えて「未確定」として別に返す。
+結果には`## Must`、`## Should`、`## Nice`、`## 未確定`の4つの見出しをこの順に必ず含め、
+該当がない見出しの下には「なし」と書く。
 運用者への確認事項にする点と、作成者の仮定として指摘に回す点の基準は、
 `.agents/skills/review-kvk-change/SKILL.md`の「結果を報告する」に従う。ここへ写さない。

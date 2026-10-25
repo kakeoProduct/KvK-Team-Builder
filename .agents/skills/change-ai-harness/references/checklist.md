@@ -23,14 +23,19 @@
 
 ## Review Agentを変更する
 
-- [ ] TOMLの`sandbox_mode`は`read-only`、`model_reasoning_effort`は`high`
+- [ ] TOMLの`sandbox_mode`は`read-only`、`model_reasoning_effort`は`high`。`sandbox_mode`はCodexでも
+      適用されない。読み取り専用の強制はHookが担い、`sandbox_mode`はHookが対象のAgentを見分ける
+      目印として使う
+- [ ] TOMLの`model`（Codex）と、`tools/sync_agent_config.py`の`CLAUDE_AGENT_MODELS`と
+      `CLAUDE_AGENT_MAX_TURNS`（Claude Code）を担当の重さに合わせて決める（ADR 0030）
 - [ ] コードレビュー用のAgentは、指示に`Must`、`Should`、`Nice`の3段階を含む
+- [ ] Agentの結果の見出しや列を変える場合は、`tools/hooks/check_review_report.py`と指示文をそろえる
 - [ ] 生成される`.claude/agents/`が編集Toolを持たない。既定と異なるToolは
       `tools/sync_agent_config.py`の`CLAUDE_AGENT_TOOLS`で指定する
 - [ ] Bashを持つ読み取り専用Agentが必要とする確認コマンドを、
       `tools/hooks/enforce_read_only_agent.py`の許可リストと`tests/test_agent_hooks.py`へ反映する
-- [ ] 読み取り専用Agentの`tools`へ書き込み得るToolを加える場合は、`.claude/settings.json`の
-      `enforce_read_only_agent.py`のmatcherにも加える
+- [ ] 読み取り専用Agentの`tools`へ書き込み得るToolを加える場合は、`.claude/settings.json`と
+      `.codex/hooks.json`の`enforce_read_only_agent.py`のmatcherにも加える
 
 ## Agent Hookを変更する
 
@@ -38,6 +43,9 @@
 - [ ] 標準入力はバイト列からUTF-8で読み、JSONはASCIIエスケープで出力する
 - [ ] `main`の最初に標準出力と標準エラーをUTF-8へ再設定する
 - [ ] `.claude/settings.json`ではexec形式で`python`と`${CLAUDE_PROJECT_DIR}`を使う
+- [ ] 両Agentで使うHookは`.codex/hooks.json`にも登録し、`git rev-parse --show-toplevel`で
+      Scriptを解決する`command`と、Windows用の`commandWindows`を書く。Codexは`Bash`にPowerShellや
+      cmdのコマンドも渡すため、Shellの記法に依存する判定は両方の解釈で確かめる
 - [ ] 安全策のHookは解析できない入力を拒否し、補助的なHookは失敗しても作業を止めない
 - [ ] `tests/test_agent_hooks.py`に許可、拒否、失敗時の判定を加える
 

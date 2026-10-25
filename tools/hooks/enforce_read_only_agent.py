@@ -3,20 +3,26 @@
 Claude Codeでは親Sessionが`auto`、`acceptEdits`、`bypassPermissions`のとき、Subagentの
 `permissionMode: plan`が無視される。PreToolUse Hookの拒否は権限モードより先に評価される
 ため、`.claude/settings.json`へ登録して`plan`相当の制限を強制する。Subagent定義の
-Frontmatterへ書いたHookは、この環境では発火しなかった。
+Frontmatterへ書いたHookは、Agentファイルのあるフォルダそのものを信頼したときだけ動き、
+`claude -p`では動かないため使わない（ADR 0030）。
+
+Codexもcustom agentの`sandbox_mode`を適用せず、Subagentは親のsandboxと承認設定を継承する。
+このため`.codex/hooks.json`へも登録する。CodexもSubagent内のHook入力へ`agent_type`を入れ、
+Shellを`Bash`、編集を`apply_patch`として同じ形で渡す（ADR 0030）。
 
 Hook入力の`agent_type`が、正本の`.codex/agents/`で`sandbox_mode = "read-only"`と宣言した
 Agentのときだけ制限する。主Sessionと他のAgentのTool呼び出しは判定せず通す。
 
-`.claude/settings.json`のmatcherは、書き込み得るTool（Bash、PowerShell、Monitor、編集Tool、
-Agent、MCP）だけをこのHookへ渡す。読み取りToolと内部Toolでは起動しないため、Claude Codeが
-内部Toolを増やしても結果の返却を妨げない。制限対象のAgentでは、届いたToolのうちBashの
-許可した確認コマンドだけを通し、それ以外と解析できない入力は拒否する。
+両方の設定のmatcherは、書き込み得るTool（Bash、編集Tool、Agentの起動、MCPなど）だけを
+このHookへ渡す。読み取りToolと内部Toolでは起動しないため、内部Toolが増えても結果の返却を
+妨げない。制限対象のAgentでは、届いたToolのうちBashの許可した確認コマンドだけを通し、
+それ以外と解析できない入力は拒否する。
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
@@ -83,21 +89,87 @@ GIT_BRANCH_LIST_OPTIONS = frozenset(
     {"-a", "--all", "-r", "--remotes", "-l", "--list", "-v", "-vv", "--show-current"}
 )
 GIT_LIST_ONLY_SUBCOMMANDS = {"stash": {"list", "show"}, "worktree": {"list"}}
-FIND_WRITE_OPTIONS = frozenset(
-    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint"}
+# findは実装（GNU find、bfs）ごとに削除や実行のOptionが違うため、検索の条件と出力だけを許可する。
+# Claude Codeの`find`はbfsで、`-delete`の別名の`-rm`を持つ。
+FIND_OPTIONS_WITH_VALUE = frozenset(
+    {
+        "-iname",
+        "-ipath",
+        "-iregex",
+        "-maxdepth",
+        "-mindepth",
+        "-mmin",
+        "-mtime",
+        "-name",
+        "-newer",
+        "-path",
+        "-regex",
+        "-size",
+        "-type",
+    }
 )
-FIND_WRITE_PREFIXES = ("-fprint",)
-SED_PRINT_SCRIPT = re.compile(r"(\d+|\$)(,(\d+|\$))?p")
+FIND_FLAGS = frozenset(
+    {
+        "!",
+        "-a",
+        "-and",
+        "-depth",
+        "-empty",
+        "-ls",
+        "-not",
+        "-o",
+        "-or",
+        "-print",
+        "-print0",
+        "-prune",
+        "-quit",
+    }
+)
+SED_PRINT_SCRIPT = re.compile(r"\d+(,\d+)?p")
 PYTHON_EXECUTABLE = re.compile(r"python(3(\.\d+)?)?(\.exe)?", re.IGNORECASE)
-# 結果ファイルの出力先、Plugin読み込み、一時Directoryの指定は書き込みや任意実行になり得る。
-PYTEST_WRITE_PREFIXES = (
-    "--basetemp",
-    "--cov",
-    "--html",
-    "--junit",
-    "--report-log",
-    "--result-log",
-    "-p",
+# pytestは結果ファイルの出力、Plugin、設定の上書き（`-o addopts=...`）、対話のデバッガー、
+# 外部への送信で書き込みや任意実行になり得るため、出力の量と対象を選ぶOptionだけを許可する。
+PYTEST_FLAG = re.compile(r"-[qvxls]+|-r[a-zA-Z]+")
+PYTEST_LONG_FLAGS = frozenset(
+    {
+        "--collect-only",
+        "--co",
+        "--exitfirst",
+        "--failed-first",
+        "--ff",
+        "--last-failed",
+        "--lf",
+        "--no-header",
+        "--quiet",
+        "--verbose",
+    }
+)
+PYTEST_VALUE_PREFIXES = ("--durations=", "--maxfail=", "--tb=")
+# 次の引数を値として取るOption。値はテストの選択式で、ファイルを指さない。
+PYTEST_OPTIONS_WITH_VALUE = frozenset({"-k", "-m"})
+# sortはOptionの省略形を受け付け、出力先や圧縮Programを指定できるため、並べ方だけを許可する。
+SORT_FLAG = re.compile(r"-(?=.)[bfhnrsuV]*(?:[kt].*)?")
+# Gitの長いOptionは一意な省略形でも受け付けるため、書き込みやPagerの起動につながるOptionは
+# 省略形も拒否する。
+GIT_DANGEROUS_LONG_OPTIONS = ("--output", "--open-files-in-pager")
+# CodexはShellの種類を問わず`Bash`として渡すため、POSIXのShellとして判定する。POSIXと
+# 解釈が食い違う記号は、1つずつ並べず丸ごと拒否する。PowerShellは`{}`をScript Blockとして
+# 実行し、全角の引用符も引用符として扱う。
+POSIX_MISMATCH_MARKERS = ("{", "}", "“", "”", "„", "‘", "’")
+# `$`は変数の展開（`$_`など）でHookが見ていない引数を渡し、`\`はPowerShellとcmdではエスケープに
+# ならず語の区切りが変わる。
+SHELL_EXPANSION_MARKERS = ("$", "\\")
+# cmdは単一引用符を引用符として扱わず、`^`でエスケープし、`%VAR%`と（遅延展開が有効なら）`!VAR!`を
+# 展開し、`sort /O`で書き込む。
+WINDOWS_SHELL = os.name == "nt"
+WINDOWS_ONLY_MARKERS = ("'", "^", "%", "!")
+# ripgrepの外部コマンドを起動するOption。
+RG_COMMAND_OPTIONS = ("--pre", "--hostname-bin")
+# 拒否したときに、許可リストに合わせた書き方を示す。
+DENIED_COMMAND_REASON = (
+    "読み取りと許可した確認コマンド以外は実行できません。pytest、sort、findは許可したOptionだけを使い、"
+    "値は`--tb=short`のように`=`で付けてください。短いOptionの値は`-S Optimizer`のように空白で"
+    "分けてください"
 )
 # 引数まで一致した場合だけ許可するRepositoryの確認Script。
 ALLOWED_SCRIPT_ARGUMENTS = {
@@ -109,6 +181,7 @@ ALLOWED_SCRIPT_ARGUMENTS = {
 def _executable_name(token: str) -> str:
     """パスを除いた実行ファイル名を返す。"""
 
+    # `\`を含むコマンドは先に拒否するが、判定の順序が変わっても名前を取り違えないよう残す。
     return token.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
 
 
@@ -120,10 +193,34 @@ def _tokenize(command: str) -> list[str] | None:
         return None
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    # bashは語の途中の`#`を注釈にしないため、shlexの注釈の処理を無効にする。
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
         return None
+
+
+def _posix_mismatch(command: str) -> str | None:
+    """POSIXと解釈が食い違う記号があれば、言い換えの手がかりを含む理由を返す。"""
+
+    if any(marker in command for marker in POSIX_MISMATCH_MARKERS):
+        return (
+            "PowerShellと解釈が食い違う`{}`と全角の引用符は使えません。"
+            "`HEAD@{1}`のような参照はコミットのSHAで言い換えてください"
+        )
+    if any(marker in command for marker in SHELL_EXPANSION_MARKERS):
+        return (
+            "Shellごとに解釈が違う`$`と`\\`は使えません。パスは`/`で区切り、変数を使わずに"
+            "書いてください。ファイルの末尾は`tail`で読んでください。検索の正規表現は、行全体は`-x`、"
+            '語の境界は`-w`、`.`は`[.]`、固定の文字列は`-F`、選択は`grep -E "a|b"`で書いてください'
+        )
+    if WINDOWS_SHELL and any(marker in command for marker in WINDOWS_ONLY_MARKERS):
+        return (
+            "Windowsでは単一引用符、`^`、`%`、`!`は使えません。二重引用符で言い換え、"
+            "`HEAD^`は`HEAD~1`、`--format=%h`は`--oneline`、findの`!`は`-not`と書いてください"
+        )
+    return None
 
 
 def _segments(tokens: list[str]) -> Iterator[list[str]] | None:
@@ -169,10 +266,7 @@ def _allows_git(arguments: list[str]) -> bool:
     if index >= len(arguments):
         return False
     subcommand, options = arguments[index], arguments[index + 1 :]
-    if any(
-        option.startswith(("--output", "--open-files-in-pager", "-O"))
-        for option in options
-    ):
+    if any(_is_dangerous_git_option(option) for option in options):
         return False
     if subcommand in READ_ONLY_GIT_SUBCOMMANDS:
         return True
@@ -188,15 +282,79 @@ def _allows_git(arguments: list[str]) -> bool:
     )
 
 
+def _is_dangerous_git_option(option: str) -> bool:
+    """書き込みやPagerの起動につながるGitのOptionを、省略形を含めて判定する。"""
+
+    # 短いOptionは`-nO<cmd>`のように束ねられ、`-O`の残りがPagerのコマンドになる。
+    if option.startswith("-") and not option.startswith("--") and "O" in option:
+        return True
+    name = option.split("=", 1)[0]
+    # `--o`のような短すぎる省略形は複数のOptionに当たり得るが、安全側で拒否する。
+    return len(name) > 2 and any(
+        long_option.startswith(name) for long_option in GIT_DANGEROUS_LONG_OPTIONS
+    )
+
+
+def _allows_pytest(arguments: list[str]) -> bool:
+    """pytestの引数が、許可したOptionとテストの指定だけかを判定する。"""
+
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in PYTEST_OPTIONS_WITH_VALUE:
+            # 値の位置でも`@file`はファイルのOptionとして展開される。
+            if index + 1 < len(arguments) and arguments[index + 1].startswith("@"):
+                return False
+            index += 2
+            continue
+        # `@file`は、ファイルに書いたOptionを読み込む。
+        if argument.startswith("@"):
+            return False
+        if argument.startswith("-") and not (
+            PYTEST_FLAG.fullmatch(argument)
+            or argument in PYTEST_LONG_FLAGS
+            or argument.startswith(PYTEST_VALUE_PREFIXES)
+        ):
+            return False
+        index += 1
+    return True
+
+
+def _allows_sort(arguments: list[str]) -> bool:
+    """sortの引数が、並べ方のOptionと入力ファイルだけかを判定する。"""
+
+    for argument in arguments:
+        if argument.startswith("-") and not SORT_FLAG.fullmatch(argument):
+            return False
+        # cmdの`sort.exe`は`/O`で出力先を指定する。
+        if WINDOWS_SHELL and argument.startswith("/"):
+            return False
+    return True
+
+
+def _allows_find(arguments: list[str]) -> bool:
+    """findの引数が、検索の起点、許可した条件、出力だけかを判定する。"""
+
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in FIND_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if (argument.startswith("-") or argument == "!") and argument not in FIND_FLAGS:
+            return False
+        index += 1
+    return True
+
+
 def _allows_python(arguments: list[str]) -> bool:
     """Pythonの引数が許可した確認処理だけを実行するか判定する。"""
 
     if arguments[:2] == ["-m", "pytest"]:
-        return not any(
-            argument.startswith(PYTEST_WRITE_PREFIXES) for argument in arguments[2:]
-        )
+        return _allows_pytest(arguments[2:])
     if not arguments:
         return False
+    # `\`を含むコマンドは先に拒否するため、置き換えは判定の順序が変わったときの防御として残す。
     script = arguments[0].replace("\\", "/").removeprefix("./")
     expected = ALLOWED_SCRIPT_ARGUMENTS.get(script)
     return expected is not None and tuple(arguments[1:]) == expected
@@ -215,10 +373,7 @@ def _allows_segment(tokens: list[str]) -> bool:
     if PYTHON_EXECUTABLE.fullmatch(name):
         return _allows_python(arguments)
     if name == "find":
-        return not any(
-            argument in FIND_WRITE_OPTIONS or argument.startswith(FIND_WRITE_PREFIXES)
-            for argument in arguments
-        )
+        return _allows_find(arguments)
     if name == "sed":
         options = [argument for argument in arguments if argument.startswith("-")]
         positional = [
@@ -230,11 +385,11 @@ def _allows_segment(tokens: list[str]) -> bool:
             and SED_PRINT_SCRIPT.fullmatch(positional[0]) is not None
         )
     if name == "rg":
-        return not any(argument.startswith("--pre") for argument in arguments)
-    if name == "sort":
         return not any(
-            argument.startswith(("-o", "--output")) for argument in arguments
+            argument.startswith(RG_COMMAND_OPTIONS) for argument in arguments
         )
+    if name == "sort":
+        return _allows_sort(arguments)
     return name in READ_ONLY_COMMANDS
 
 
@@ -272,10 +427,13 @@ def _blocked_reason(payload: Any) -> str | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if not isinstance(command, str) or not command.strip():
         return "Shellコマンドを確認できませんでした"
+    mismatch = _posix_mismatch(command)
+    if mismatch is not None:
+        return mismatch
     tokens = _tokenize(command)
     segments = _segments(tokens) if tokens else None
     if segments is None or not all(_allows_segment(segment) for segment in segments):
-        return "読み取りと許可した確認コマンド以外は実行できません"
+        return DENIED_COMMAND_REASON
     return None
 
 

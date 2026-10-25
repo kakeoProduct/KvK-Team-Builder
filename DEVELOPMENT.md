@@ -126,7 +126,7 @@ python tools/preview_output.py
 | `tests/test_cli.py` | UTF-8ファイル入出力と終了コード |
 | `tests/test_integration.py` | 実運用サンプルを使った一連の処理 |
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
-| `tests/test_agent_hooks.py` | Git保護と共有記憶のAgent Hook |
+| `tests/test_agent_hooks.py` | Git保護、読み取り専用の強制、レビュー結果の検査、共有記憶のAgent Hook |
 
 CP-SATを含むため全テストには数十秒かかります。変更中は対象テストを実行しても
 構いませんが、完了前には必ず `python tools/check.py` を実行します。
@@ -206,7 +206,9 @@ python tools/sync_agent_config.py
 Codex専用の`$codex-handoff`と`$git-guardrails-codex`はClaude Codeへ同期しません。
 Codexが解釈しないClaude Code専用の起動設定は、正本のFrontmatterへ書かず、
 `tools/sync_agent_config.py`の`CLAUDE_SKILL_SETTINGS`から生成物へ加えます。既定と異なる
-ToolのReview Agentは`CLAUDE_AGENT_TOOLS`で指定します。
+ToolのReview Agentは`CLAUDE_AGENT_TOOLS`で指定します。Review Agentのモデルは、Codexでは正本の
+`model`、Claude Codeでは`CLAUDE_AGENT_MODELS`で指定し、ターン上限は`CLAUDE_AGENT_MAX_TURNS`で
+指定します（ADR 0030）。
 Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます。
 `.claude/settings.local.json`と、ローカルのプレビュー起動設定`.claude/launch.json`は、利用者ごとの
 設定としてGit管理しません。
@@ -221,10 +223,11 @@ Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます�
 |---|---|---|
 | `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する |
 | `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す。主Sessionと他のAgentは判定しない |
+| `SubagentStop` | `check_review_report.py` | レビュー担当の結果に`Must`、`Should`、`Nice`、`未確定`の見出しが、`evidence-reviewer`の結果に判定表の列がなければ、1回だけ書き直させる |
 | `SessionStart` | `project_memory_hook.py session-start` | 共有記憶の開始状態を保存し、session_idと、別Sessionが使用中ならworktreeへ移る指示をContextへ渡す |
 | `Stop` | `project_memory_hook.py stop` | 未記録の変更があれば1 Sessionに1回だけ`finish`を促す |
 
-Git保護Scriptは`$git-guardrails-codex`でCodexへ設定するScriptと同じものです。保護対象を
+Git保護Scriptは、Codexでも`.codex/hooks.json`から同じものを実行します。保護対象を
 変更する場合は`tools/hooks/`と`tests/test_agent_hooks.py`を同時に更新します。共有記憶Hookは
 失敗しても作業を止めず、理由を標準エラーへ出します。Claude Codeは信頼したWorkspaceでだけ
 Project Hookを実行します。一時的に無効化する場合は、利用者ローカルの設定で
@@ -238,9 +241,53 @@ Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`by
 無視されます。`enforce_read_only_agent.py`はHook入力の`agent_type`で対象を判定し、Review Agentの
 Bashでは、`git`の読み取り系サブコマンド、`cat`や`grep`などの読み取りコマンド、`pytest`、
 `tools/check.py`、`tools/sync_agent_config.py --check`だけを許可します。ファイルへのリダイレクト、
-コマンド置換、`--fix`などの書き込みOptionは拒否します。`tools/preview_output.py`は`tmp/preview/`の
+コマンド置換、`--fix`などの書き込みOptionは拒否します。pytest、sort、findは、出力の量やテストの選択、
+並べ方、検索の条件のOptionだけを許可リストで通します。Gitの`--output`と`--open-files-in-pager`は省略形も、`-O`は
+`-nO<cmd>`のように束ねた短いOptionも拒否します。`tools/preview_output.py`は`tmp/preview/`の
 前回出力を上書きするため、Review Agentからは実行できません。Hookの変更は新しいSessionから
 有効になります。
+
+### CodexのHook
+
+Codexは、custom agentに書いた`sandbox_mode`を適用せず、Subagentは親Sessionのsandboxと承認設定を
+継承します。このため`.codex/hooks.json`へ、Claude Codeと同じScriptを登録しています。Hookを信頼して
+動いている間は、親SessionをAutoにしても、Review Agentは読み取り専用で動きます（ADR 0030）。
+
+| Event | Script | matcher | 動作 |
+|---|---|---|---|
+| `PreToolUse` | `block_dangerous_git.py` | `Bash` | 通常のpushを含め、危険なGit操作を拒否する |
+| `PreToolUse` | `enforce_read_only_agent.py` | `Bash`、`apply_patch`、`spawn_agent`、MCP | 読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す |
+| `SubagentStop` | `check_review_report.py` | なし（Script内でAgentを判定する） | レビュー結果の見出しと判定表の列を検査する |
+
+Codexは、Project Hookを`.codex/`の層が信頼されたときだけ読み込み、さらに各Hookを利用者が
+`/hooks`で確認して信頼するまで実行しません。信頼は内容のHashへ記録されるため、Hookを変更したら
+もう一度`/hooks`で信頼します。信頼する前は読み取り専用が強制されないため、主Sessionは
+`$review-kvk-change`でReview Agentを起動する前と、`$research`を起動する前に、`/hooks`でHookを信頼済みかを
+利用者に尋ねます。`$research`はSubagentとして動くため、確かめた結果を問いと一緒に渡します。Hookは作業Directoryで起動するため、
+`git rev-parse --show-toplevel`でRepositoryのルートを解決します。Unixでは`python3`、Windowsでは
+`commandWindows`の`python`で起動します。CodexではGit保護Hookが通常のpushも拒否するため、pushは利用者が
+行います。
+
+以前の`$git-guardrails-codex`のProjectの手順で、追跡していない`.codex/hooks.json`や`.codex/hooks/`を
+作っていた場合は、この設定を取り込む前に退避するか削除します。
+
+CodexはShellの種類を問わず、コマンドを`Bash`として渡します。Windowsの既定のShellはPowerShellです。
+このため`enforce_read_only_agent.py`はコマンドをPOSIXのShellとして判定し、PowerShellと解釈が食い違う
+`{}`、全角の引用符、変数の展開に使う`$`、エスケープの解釈が違う`\`を、記号ごとの書き方を並べずに
+常に拒否します。パスは`/`で区切ります。Windowsでは、cmdが引用符として扱わない単一引用符、エスケープの`^`、
+変数を展開する`%`と`!`、`sort /O`のような`/`で始まる`sort`の引数も拒否します。`find`はClaude Codeではbfsに置き換わり、削除の
+`-rm`を持つため、検索の条件と出力のOptionだけを許可リストで通します。
+
+Hookの起動に失敗すると、強制と検査が効かないことがあります。Claude CodeとCodexは、0と2以外の終了を
+拒否として扱いません。
+
+| 失敗 | Linux | Windows |
+|---|---|---|
+| `python3`がないか3.11未満 | 終了コード127か1で、強制も検査も行われずに続く | 強制も検査も行われずに続く |
+| `git rev-parse --show-toplevel`が失敗する | PreToolUseはScriptを開けずに終了コード2となり、主Sessionを含めてmatcherに当たるTool呼び出しがすべて拒否される。SubagentStopはPythonを起動せずに続く | 強制も検査も行われずに続く |
+
+Codexの実機ではまだ確かめていないため、`/hooks`で信頼した後に、Review Agentへ書き込みを試させて
+拒否されることを確かめます。
 
 ### 共有スキル
 
@@ -259,12 +306,12 @@ $research
 ```
 
 `$review-kvk-change`は、`.codex/agents/`（Claude Codeでは`.claude/agents/`）にある
-ドメイン、アーキテクチャ、テスト、要件の読み取り専用sandboxを要求する4つのレビューエージェントを
+ドメイン、アーキテクチャ、テスト、要件の読み取り専用の4つのレビューエージェントを
 束ねます。レビュー対象のブランチ、
 コミット、
 または差分をプロンプトで指定してください。指定がない場合は現在の作業ツリーとブランチ
-差分を対象にします。実行環境が名前付きエージェントまたは読み取り専用sandboxを適用
-できない場合、主エージェントが同じ4つの観点を順に確認します。要件レビュー担当
+差分を対象にします。実行環境が名前付きエージェントまたは読み取り専用の強制（PreToolUse Hook）を
+適用できない場合、主エージェントが同じ4つの観点を順に確認します。要件レビュー担当
 （`kvk-requirements-reviewer`）は、出典との一致、考慮漏れ、曖昧さ、矛盾を確かめます。文書だけの
 変更もレビューの対象です。理由を書けばレビューを見送れるのは、意味を変えない誤字の修正だけの変更、共有記憶（`docs/project-memory/`）だけの変更、意味を変えない誤字の修正とそのセッションの共有記憶の記録だけを含む変更の3つです（ADR 0024）。結果はテンプレートの形式で
 `tmp/reviews/`へ保存され、対象branchのPull Requestへコメントとして投稿されます（ADR 0022）。

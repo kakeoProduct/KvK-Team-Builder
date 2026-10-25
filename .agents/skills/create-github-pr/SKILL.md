@@ -14,7 +14,8 @@ description: 現在のGitブランチと基準ブランチとの差分、Pull Re
    読む。
 2. 「本文を作る」「準備する」「プレビューする」という依頼では、pushとPull Request作成を
    行わない。「Pull Requestを作成する」という明示的な依頼を、現在ブランチの通常pushと
-   `gh pr create`の承認として扱う。
+   `gh pr create`の承認として扱う。Codexでは「Pull Requestの対象を検証する」の手順6のとおり、
+   pushは利用者に頼む。
 3. DraftまたはReadyの指定を尊重する。指定がなく品質ゲートが成功した場合はReadyとし、
    失敗または未実行の場合はReadyを作らない。Draft作成は明示的な依頼がある場合だけ行う。
 4. commit、修正実装、Issue操作、force push、既存Pull Requestの更新、mergeを、このスキルの
@@ -66,7 +67,9 @@ description: 現在のGitブランチと基準ブランチとの差分、Pull Re
    場合だけ現在branchを
    `git push --set-upstream origin <branch>`でpushする。baseや別branchをpushせず、
    `--force`と`--force-with-lease`を使用しない。headが`dev`の場合はpushせず、手順3で確かめた
-   `origin/dev`をそのまま使う。
+   `origin/dev`をそのまま使う。CodexではGit保護Hook（`.codex/hooks.json`）が通常のpushも拒否するため、
+   pushせずに同じコマンドを利用者に示して実行を頼む。利用者が終えたと答えたら、`git ls-remote --heads origin <branch>`
+   のSHAがHEADと一致することを確かめてから次へ進む（ADR 0030）。
 
 ## タイトルと本文を作る
 

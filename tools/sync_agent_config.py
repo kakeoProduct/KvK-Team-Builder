@@ -29,6 +29,19 @@ CODEX_METADATA_DIRECTORY = "agents"
 CLAUDE_REVIEWER_TOOLS = "Read, Grep, Glob, Bash"
 # 既定と異なるToolが必要なAgent。証拠Reviewerは出典を開くがShellを使わない。
 CLAUDE_AGENT_TOOLS = {"evidence-reviewer": "Read, Grep, Glob, WebSearch, WebFetch"}
+# 主会話のモデルを継承させず、判断の重い担当だけ上位のモデルにする（ADR 0030）。
+# Codexのモデルは正本のTOMLの`model`で指定する。
+CLAUDE_REVIEWER_MODEL = "sonnet"
+CLAUDE_AGENT_MODELS = {
+    "evidence-reviewer": "opus",
+    "kvk-architecture-reviewer": "opus",
+    "kvk-requirements-reviewer": "opus",
+}
+# 暴走を止めるターン上限。過去の最大33ターンに余裕を持たせる。Codexには同等の設定がない。
+CLAUDE_REVIEWER_MAX_TURNS = 40
+# 証拠の照合は下書きの主張の数に比例して長くなり、アーキテクチャ担当は仕様とソースの
+# 突き合わせで40ターンに達した。
+CLAUDE_AGENT_MAX_TURNS = {"evidence-reviewer": 60, "kvk-architecture-reviewer": 60}
 # Codexが解釈しないClaude Code専用の起動設定。正本のFrontmatterは共通項目だけに保つ。
 # disallowed-toolsは次の利用者Messageで解除されるため、後続の修正依頼を妨げない。
 CLAUDE_SKILL_SETTINGS: dict[str, dict[str, str]] = {
@@ -134,6 +147,10 @@ def _agent_files(root: Path) -> list[GeneratedFile]:
                 "name": definition["name"],
                 "description": definition["description"],
                 "tools": CLAUDE_AGENT_TOOLS.get(path.stem, CLAUDE_REVIEWER_TOOLS),
+                "model": CLAUDE_AGENT_MODELS.get(path.stem, CLAUDE_REVIEWER_MODEL),
+                "maxTurns": CLAUDE_AGENT_MAX_TURNS.get(
+                    path.stem, CLAUDE_REVIEWER_MAX_TURNS
+                ),
                 "permissionMode": "plan",
                 "effort": definition.get("model_reasoning_effort", "high"),
             },

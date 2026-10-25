@@ -26,6 +26,14 @@ CODE_REVIEW_AGENTS = {
 }
 EVIDENCE_REVIEW_AGENT = "evidence-reviewer"
 EXPECTED_AGENTS = CODE_REVIEW_AGENTS | {EVIDENCE_REVIEW_AGENT}
+# 判断の重い担当だけ上位のモデルを使う（ADR 0030）。
+HEAVY_REVIEW_AGENTS = {
+    "kvk-architecture-reviewer",
+    "kvk-requirements-reviewer",
+    EVIDENCE_REVIEW_AGENT,
+}
+REVIEW_REPORT_HEADINGS = ("## Must", "## Should", "## Nice", "## 未確定")
+EVIDENCE_TABLE_HEADER = "| 主張 | 判定 | 出典URL | 確認日 | 必要な訂正 |"
 EXPECTED_PROJECT_SKILLS = {
     "apple-design",
     "change-ai-harness",
@@ -70,6 +78,101 @@ def test_review_agents_request_read_only_toml_definitions() -> None:
         assert JAPANESE_TEXT_PATTERN.search(definition["developer_instructions"])
         assert definition["sandbox_mode"] == "read-only"
         assert definition["model_reasoning_effort"] == "high"
+        expected_model = (
+            "gpt-6.1-sol" if path.stem in HEAVY_REVIEW_AGENTS else "gpt-6-luna"
+        )
+        assert definition["model"] == expected_model, path.stem
+
+
+def test_review_agents_return_reports_the_stop_hook_can_check() -> None:
+    """SubagentStop Hookが検査する見出しと列を、各Agentの指示が求める。"""
+
+    for name in EXPECTED_AGENTS:
+        with (AGENT_DIRECTORY / f"{name}.toml").open("rb") as source:
+            instructions = tomllib.load(source)["developer_instructions"]
+        if name == EVIDENCE_REVIEW_AGENT:
+            assert EVIDENCE_TABLE_HEADER in instructions
+            continue
+        for heading in REVIEW_REPORT_HEADINGS:
+            assert f"`{heading}`" in instructions, (name, heading)
+        assert "「なし」" in instructions, name
+
+
+def test_review_skill_checks_enforcement_and_incomplete_reports() -> None:
+    """強制を確かめてから委譲し、不完全な結果の観点を主エージェントが確認し直す。"""
+
+    source = _compact(
+        (SKILL_DIRECTORY / "review-kvk-change" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "SessionStartHookのContextが届いていれば動いているとみなす",
+        "`/hooks`で`.codex/hooks.json`のHookを信頼済みか尋ね",
+        "確かめられなければ、読み取り専用の強制を適用できない場合として扱う",
+        "起動時に`model`を指定しない",
+        "報告を返さずに止まった担当には、追加の調査をせず確かめた内容で報告をまとめるよう続きを指示する",
+        "不完全な結果とみなす",
+        "「前提と未実行の検査」に書く",
+    ):
+        assert _compact(required) in source, required
+
+    # 証拠担当の打ち切られた判定表を、検証済みとして扱わない。
+    research = _compact(
+        (SKILL_DIRECTORY / "research" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    for required in (
+        "一部の主張にしか判定がない結果は、打ち切られた不完全な結果とみなす",
+        "独立に検証できなかった主張として報告する",
+        # Subagentは利用者に尋ねられないため、主Agentが強制を確かめて結果を渡す。
+        "主Agentが起動の前に、`$review-kvk-change`の「独立した観点を委譲する」と同じ方法で",
+        "確かめた結果（動いている、または確かめられない）を、問いと一緒にSubagentへ渡す",
+        "動いていると渡された場合だけ起動し、それ以外（確かめられない、または渡されていない）は"
+        "起動できない環境として扱う",
+        "起動時に`model`を指定しない",
+        "追加の調査をせず確かめた内容で報告をまとめるよう続きを指示する",
+    ):
+        assert _compact(required) in research, required
+    # 利用者の直接起動では確認の結果が渡らないため、独立検証しないことを明示する。
+    for required in (
+        "利用者が`/research`で直接起動した場合は確認の結果が渡らないため",
+        "独立検証が要る調査は主Sessionに依頼する",
+    ):
+        assert _compact(required) in research, required
+    research_description = _frontmatter(SKILL_DIRECTORY / "research" / "SKILL.md")[
+        "description"
+    ]
+    assert "読み取り専用の強制を確かめた結果" in research_description
+
+    # Claude Codeの主Sessionは、確かめた結果をSkill Toolの`args`へ渡す。
+    claude_policy = _compact((PROJECT_ROOT / "CLAUDE.md").read_text(encoding="utf-8"))
+    for required in (
+        "起動の前に主Sessionが確かめた読み取り専用の強制の結果",
+        "利用者が`/research`で直接起動した場合は",
+    ):
+        assert _compact(required) in claude_policy, required
+
+    # CodexではGit保護Hookがpushを拒否するため、利用者に頼んでpush済みを確かめる。
+    for skill_name, required in (
+        ("create-github-pr", "pushせずに同じコマンドを利用者に示して実行を頼む"),
+        ("create-github-pr", "`git ls-remote --heads origin <branch>`"),
+        ("implement", "利用者にpushを頼み、push済みを確かめてから続ける"),
+    ):
+        skill_source = _compact(
+            (SKILL_DIRECTORY / skill_name / "SKILL.md").read_text(encoding="utf-8")
+        )
+        assert _compact(required) in skill_source, (skill_name, required)
+    assert "pushは利用者に頼みます" in (PROJECT_ROOT / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
+
+    guardrail = (SKILL_DIRECTORY / "git-guardrails-codex" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    # 追跡する`.codex/hooks.json`へ個人の設定を混ぜない。
+    assert (
+        "`.codex/hooks.json`へScriptのコピーや相対パスのHookを追記しない" in guardrail
+    )
+    assert "python3 .codex/hooks/" not in guardrail
+    assert "ADR 0030" in guardrail
 
 
 def test_review_harness_uses_human_decision_levels() -> None:
@@ -1710,6 +1813,14 @@ def test_claude_review_agents_have_no_edit_tools() -> None:
         assert frontmatter["description"] == definition["description"]
         assert frontmatter["permissionMode"] == "plan"
         assert frontmatter["effort"] == "high"
+        # 主会話のモデルを継承させず、担当の重さで固定する（ADR 0030）。
+        expected_model = "opus" if path.stem in HEAVY_REVIEW_AGENTS else "sonnet"
+        assert frontmatter["model"] == expected_model, path.stem
+        # 過去の最大33ターンに余裕を持たせ、証拠の照合は主張の数に比例して長くなる。
+        # アーキテクチャ担当は仕様とソースの突き合わせで40ターンに達したため広げた。
+        long_agents = {EVIDENCE_REVIEW_AGENT, "kvk-architecture-reviewer"}
+        expected_turns = 60 if path.stem in long_agents else 40
+        assert frontmatter["maxTurns"] == expected_turns, path.stem
         tools = {tool.strip() for tool in str(frontmatter["tools"]).split(",")}
         assert tools.isdisjoint({"Edit", "Write", "NotebookEdit"})
         if path.stem == EVIDENCE_REVIEW_AGENT:

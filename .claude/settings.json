@@ -36,6 +36,19 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/check_review_report.py"
+            ]
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

@@ -171,8 +171,8 @@ Web UIを新規実装、変更、またはレビューするときは`$apple-des
 ## レビューエージェントとスキル
 
 コード、文書（要件定義書を含む）、プルリクエスト、ブランチ差分のレビューには
-`$review-kvk-change`を使用します。名前付きカスタムエージェント定義とその読み取り専用
-sandboxを適用できる場合は、次の4つの担当を同じ対象へ並列に割り当て、全結果を待ってから
+`$review-kvk-change`を使用します。名前付きカスタムエージェント定義と読み取り専用の強制を
+適用できる場合は、次の4つの担当を同じ対象へ並列に割り当て、全結果を待ってから
 主エージェントが
 根拠を再確認します。
 
@@ -208,13 +208,17 @@ Pull Requestがまだない場合は、`$create-github-pr`が作成後に投稿�
 自己点検リスト（`.agents/skills/review-kvk-change/references/self-check.md`）を確かめます。再レビューは
 指摘の原因を振り返って項目の案を書き、作成者が次の対応の最初にリストへ反映します（ADR 0024）。
 
-カスタムエージェント選択または読み取り専用sandboxを適用できない環境では、同名の汎用
+カスタムエージェント選択または読み取り専用の強制を適用できない環境では、同名の汎用
 エージェントを代用せず、主エージェントが割り当てるはずだった4つの観点（要件の観点を含む）を
-順に確認します。TOMLの`sandbox_mode`は
-親セッションの実行時
-権限で上書きされる場合があるため、設定値だけを読み取り専用の保証として扱いません。
-Claude Codeでは、`.claude/settings.json`のPreToolUse Hookが、正本で読み取り専用と宣言した
-Agentの書き込み得るTool呼び出しを、権限モードにかかわらず拒否します。
+順に確認します。TOMLの`sandbox_mode`は、Codexでも適用されません。Subagentは親セッションの
+sandboxと承認設定を継承するため、設定値を読み取り専用の保証として扱いません。読み取り専用は、
+Claude Codeの`.claude/settings.json`とCodexの`.codex/hooks.json`のPreToolUse Hookが強制します。
+このHookが動いている間は、正本で読み取り専用と宣言したAgentの書き込み得るTool呼び出しを、親セッションの
+権限モードにかかわらず拒否するため、親セッションは`auto`のままで構いません。Hookは、Claude Codeでは
+Workspaceを信頼した後、Codexでは利用者が`/hooks`で信頼した後にだけ動きます。主エージェントが動いていると
+確かめられない場合は、読み取り専用の強制を適用できない環境として扱います。SubagentStop Hookは、レビュー
+担当の結果に`Must`、`Should`、`Nice`、`未確定`の見出しが、`evidence-reviewer`の結果に判定表の列が
+ない場合に、1回だけ書き直させます（ADR 0030）。
 修正を依頼された場合も、レビューを完了して合意した指摘だけを通常の実装フローで
 直します。単純な質問や差分のない説明では、不要な並列レビューを開始しません。
 
@@ -238,7 +242,8 @@ Web UIの新規実装、変更、レビューには`$apple-design`を使用し�
 
 GitHub Pull Requestの本文準備、Draft作成、Ready作成には`$create-github-pr`を使用します。
 このSkillは`.github/pull_request_template.md`と検証結果を正本とし、同じhead branchの重複を
-確認してから、利用者が作成を明示した場合だけ通常pushと`gh pr create`を行います。
+確認してから、利用者が作成を明示した場合だけ通常pushと`gh pr create`を行います。Codexでは
+Git保護Hookがpushを拒否するため、pushは利用者に頼みます（ADR 0030）。
 CodespacesではRepository限定のfine-grained PATをCodespaces Secretの`GH_TOKEN`から利用し、
 TOKENの表示、`.env`への保存、force push、merge、Issue操作を行いません。個人所有のProjectを
 扱う場合だけ、`gh auth login --web`のOAuthトークンまたはclassic PATを、ADR 0008のスコープ上限と

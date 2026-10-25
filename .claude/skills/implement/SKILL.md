@@ -114,6 +114,8 @@ disable-model-invocation: true
    あれば、昇格候補の作成を利用者へ提案する。自動では作成しない。
 4. 完了した作業の進捗ファイルは削除する。
 5. コミット、push、Pull Request作成は、利用者が明示した場合だけ行う。コミットとpushの前に、
-   コミットメッセージとbranch名が`AGENTS.md`の伏せる語の規則（ADR 0026）に当たらないことを確かめる。Pull Requestがある状態で
+   コミットメッセージとbranch名が`AGENTS.md`の伏せる語の規則（ADR 0026）に当たらないことを確かめる。Codexでは
+   Git保護Hookがpushを拒否するため、`$create-github-pr`の「Pull Requestの対象を検証する」の手順6と同じく
+   利用者にpushを頼み、push済みを確かめてから続ける（ADR 0030）。Pull Requestがある状態で
    pushしたら、まだ投稿していない`$review-kvk-change`の結果を、その手順3の確認を行ってから投稿する
    （ADR 0024）。

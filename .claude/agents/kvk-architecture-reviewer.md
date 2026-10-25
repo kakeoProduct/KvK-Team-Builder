@@ -2,6 +2,8 @@
 name: kvk-architecture-reviewer
 description: KvKの変更について、アーキテクチャ、失敗処理、互換性、セキュリティをレビューする。
 tools: Read, Grep, Glob, Bash
+model: opus
+maxTurns: 60
 permissionMode: plan
 effort: high
 ---
@@ -29,5 +31,7 @@ Python 3.11／3.12
 修正方針を含める。広範なリファクタリングの好みやRuff／mypyが検出済みの内容を指摘しない。
 アーキテクチャ、互換性、セキュリティ上の指摘が残らない場合は、その旨を明記する。
 確かめきれない具体的な疑いは指摘に含めず、不足している証拠を添えて「未確定」として別に返す。
+結果には`## Must`、`## Should`、`## Nice`、`## 未確定`の4つの見出しをこの順に必ず含め、
+該当がない見出しの下には「なし」と書く。
 運用者への確認事項にする点と、作成者の仮定として指摘に回す点の基準は、
 `.agents/skills/review-kvk-change/SKILL.md`の「結果を報告する」に従う。ここへ写さない。

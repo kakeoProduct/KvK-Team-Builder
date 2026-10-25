@@ -13,7 +13,10 @@
 - Codexが解釈しないSkillの起動設定は、同期Scriptが生成物のFrontmatterへだけ加える。
   `$review-kvk-change`は`disallowed-tools`で編集Toolを外し、`effort: high`で動く。この制限は
   次の利用者Messageで解除される。`$research`は`context: fork`でSubagentとして起動するため、
-  Skill Toolの`args`へ問い、保存の要否、保存先を渡す
+  Skill Toolの`args`へ問い、保存の要否、保存先と、起動の前に主Sessionが確かめた読み取り専用の強制の
+  結果（SessionStart HookのContextが届いていれば動いている）を渡す。利用者が`/research`で直接起動した
+  場合は結果が渡らないため、独立検証をせず、そのことを報告に書く。独立検証が要る調査は主Sessionに
+  依頼する（ADR 0030）
 - `$review-kvk-change`の4つのReview Agentは、`.claude/agents/`の同名Subagentとして
   並列に起動する。Subagentは編集Toolを持たない
 - `codex-handoff`と`git-guardrails-codex`はCodex専用のため、Claude Codeへ同期しない
@@ -35,8 +38,14 @@
 - Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`bypassPermissions`の
   とき無視される。このため`tools/hooks/enforce_read_only_agent.py`を`.claude/settings.json`へ
   書き込み得るToolだけを対象に登録し、`.codex/agents/`で`sandbox_mode = "read-only"`のAgentには
-  許可した確認コマンドだけを通す。Subagent定義のFrontmatterへ書いたHookは発火しなかったため使わない。
-  Hookの追加と変更は、Claude Codeの新しいSessionから有効になる
+  許可した確認コマンドだけを通す。Subagent定義のFrontmatterへ書いたHookは、Agentファイルのある
+  フォルダそのものを信頼したときだけ動き、`claude -p`では動かないため使わない（ADR 0030）。
+  Hookの追加と変更は、Claude Codeの新しいSessionから有効になる。SessionStart HookのContextが届いて
+  いれば、Project Hookは動いている
+- Claude Code用の`model`の値と`maxTurns`は、Codexと値が異なるか同等の設定がないため、同期Scriptが
+  生成物のFrontmatterへだけ加える。重い担当（要件、アーキテクチャ、証拠）は`opus`、ほかは`sonnet`とし、
+  主会話のモデルを継承させない。`maxTurns`はドメイン、テスト、要件の担当が40、`kvk-architecture-reviewer`と`evidence-reviewer`が60
+  （ADR 0030）
 - `.claude/settings.json`の`permissions.deny`は、生成物の直接編集と`.env`の読み取りを拒否する。
   Pythonなど編集Tool以外からの書き込みは対象外のため、同期Scriptは従来どおり実行できる
 - `CLAUDE.md`にはClaude Code固有の読み替えだけを書き、共通の規約は`AGENTS.md`へ書く

@@ -2,6 +2,8 @@
 name: kvk-requirements-reviewer
 description: KvKの要件定義書、ADR、利用者向け契約の変更について、出典との一致、考慮漏れ、曖昧さ、矛盾、検証可能性をレビューする。
 tools: Read, Grep, Glob, Bash
+model: opus
+maxTurns: 40
 permissionMode: plan
 effort: high
 ---
@@ -46,5 +48,7 @@ tmp/review-sources/に置かれることがあり、実運用の名前を含む�
 各指摘に、正確なファイルと行、該当する要件ID、出典のどの規則との関係か、具体的な修正案を含める。
 運用者の判断が必要な点は、指摘ではなく「運用者への確認事項」として番号付きで分けて返す。
 確かめきれない具体的な疑いは指摘に含めず、不足している証拠を添えて「未確定」として別に返す。
+結果には`## Must`、`## Should`、`## Nice`、`## 未確定`の4つの見出しをこの順に必ず含め、
+該当がない見出しの下には「なし」と書く。
 運用者への確認事項にする点と、作成者の仮定として指摘に回す点の基準は、
 `.agents/skills/review-kvk-change/SKILL.md`の「結果を報告する」に従う。ここへ写さない。

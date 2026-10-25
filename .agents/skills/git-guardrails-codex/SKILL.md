@@ -20,25 +20,29 @@ Codexの`PreToolUse` HookでShellコマンドを検査し、次のGit操作を�
 
 ## 1. 適用範囲を決める
 
-利用者へ、現在のProjectだけに設定するか、すべてのProjectへ設定するか確認する。
+このRepositoryでは、追跡する`.codex/hooks.json`に`tools/hooks/block_dangerous_git.py`を登録済み
+である（ADR 0030）。Projectの範囲では追加の設定をせず、`/hooks`でこのHookを信頼済みかを確かめる。
+`.codex/hooks.json`へScriptのコピーや相対パスのHookを追記しない。保護対象を変える場合は、正本の
+`tools/hooks/`とテストを変更する。
 
-- Project: `.codex/hooks.json`と`.codex/hooks/block_dangerous_git.py`
+すべてのProjectへ設定するかを利用者へ確認し、希望した場合だけ次のUser設定を作る。
+
 - User: `~/.codex/hooks.json`と`~/.codex/hooks/block_dangerous_git.py`
 
 ## 2. Scriptを配置する
 
-Repositoryで共有する`tools/hooks/block_dangerous_git.py`を対象の`hooks`Directoryへコピーする。
+Repositoryで共有する`tools/hooks/block_dangerous_git.py`を`~/.codex/hooks/`へコピーする。
 このScriptはClaude CodeのProject Hookからも使用するため、保護対象の変更は正本である
 `tools/hooks/`側で行う。既存ファイルを置き換える場合は、差分を提示して利用者の承認を得る。
 
 ## 3. Hookを追加する
 
-既存の`hooks.json`がある場合は、他のHookを保ったまま`hooks.PreToolUse`へ追加する。
-Project設定の例は次のとおり。
+既存の`~/.codex/hooks.json`がある場合は、他のHookを保ったまま`hooks.PreToolUse`へ追加する。
+User設定の例は次のとおり。`<Scriptの絶対パス>`は、コピーしたScriptの解決済み絶対パスに置き換える。
 
 ```json
 {
-  "description": "RepositoryのGit保護ルール",
+  "description": "Git保護ルール",
   "hooks": {
     "PreToolUse": [
       {
@@ -46,8 +50,8 @@ Project設定の例は次のとおり。
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .codex/hooks/block_dangerous_git.py",
-            "commandWindows": "python .codex\\hooks\\block_dangerous_git.py",
+            "command": "python3 \"<Scriptの絶対パス>\"",
+            "commandWindows": "python \"<Scriptの絶対パス>\"",
             "statusMessage": "Gitコマンドの安全性を確認しています"
           }
         ]
@@ -57,8 +61,7 @@ Project設定の例は次のとおり。
 }
 ```
 
-User設定では、`command`と`commandWindows`へScriptの解決済み絶対パスを設定する。Homeを示す
-未解決の環境変数を設定ファイルへ書き込まない。
+Homeを示す未解決の環境変数を設定ファイルへ書き込まない。
 
 ## 4. 動作を検証する
 
