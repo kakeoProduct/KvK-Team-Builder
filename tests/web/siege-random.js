@@ -1,5 +1,5 @@
 "use strict";
-// 決定的な乱数で作った1000件の入力を、集結タイムライン計算の実物で計算し、性質C1〜C9を検査する。
+// 決定的な乱数で作った1000件の入力を、集結タイムライン計算の実物で計算し、性質C1〜C10を検査する。
 // 1件ごとに画面を操作するため約30msかかる。`node --test`はファイルを並列に実行するため、
 // 1000件をSHARDS個のファイル（siege-random-{番号}.test.js）へ分けて実行時間を縮める。
 
@@ -24,7 +24,7 @@ function shardCases(shard) {
 }
 
 function runShard(shard) {
-  test(`決定的な乱数の入力${CASES}件のうち${shard}/${SHARDS}で、性質C1〜C9に違反しない`, t => {
+  test(`決定的な乱数の入力${CASES}件のうち${shard}/${SHARDS}で、性質C1〜C10に違反しない`, t => {
     const cases = shardCases(shard);
     assert.ok(cases.length > 0, `shard ${shard}の入力が0件`);
     const failures = [];

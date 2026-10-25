@@ -152,6 +152,8 @@
 
   /* --- ページ内タブ（WAVE-060〜WAVE-066） --- */
   .tabbar { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+  /* 狭い画面でもタブ追加のボタンを折り返さず、タブの並びの側を横にスクロールさせる */
+  .tabbar > button { flex: 0 0 auto; white-space: nowrap; }
   .tablist {
     display: flex; gap: 4px; flex: 1 1 auto; min-width: 0;
     overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px 4px 0;
@@ -174,8 +176,16 @@
   /* --- 計算元（WAVE-070）。貼り付け欄と違い、画面幅900px以下でも表示する --- */
   .source-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
   .source-row select { max-width: 100%; }
+  /* 狭い画面で選択欄の文言が長くても、読み込むボタンを押しつぶさず、選択欄の側を縮める */
+  .source-row .field { min-width: 0; max-width: 100%; }
+  .source-row .unit-row { flex-wrap: wrap; max-width: 100%; }
+  .source-row .unit-row select { flex: 1 1 12em; min-width: 0; }
+  .source-row .unit-row button { flex: 0 0 auto; white-space: nowrap; }
   .source-status { font-size: 13px; color: #333; padding-bottom: 8px; }
   .source-status.warning { color: #8a4b00; font-weight: bold; }
+  /* 別のブラウザのタブでの削除で計測を終えたことを、「⚠」と文言で知らせる（WAVE-053） */
+  .external-notice { color: #8a4b00; font-weight: bold; font-size: 13px; margin-bottom: 12px; }
+  .external-notice:empty { display: none; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
@@ -299,6 +309,7 @@
   <div class="tablist" role="tablist" id="tabList" aria-label="タイマーのタブ"></div>
   <button type="button" id="addTabBtn" class="secondary">+ タブ追加</button>
 </div>
+<div class="external-notice" id="externalNotice" role="status" aria-live="polite"></div>
 
 <div id="tabPanel" role="tabpanel">
 
@@ -386,6 +397,7 @@ const deleteTabBtn = document.getElementById("deleteTabBtn");
 const sourceSelect = document.getElementById("sourceSelect");
 const loadSourceBtn = document.getElementById("loadSourceBtn");
 const sourceStatus = document.getElementById("sourceStatus");
+const externalNotice = document.getElementById("externalNotice");
 
 const settingInputs = [periodMinInput, periodSecInput, maxMinInput, maxSecInput, extraDisplayInput];
 const DEFAULT_SETTINGS = { periodMin: "0", periodSec: "10", maxMin: "0", maxSec: "30", extraDisplaySec: "3" };
@@ -413,8 +425,9 @@ function tabLabel(t) {
 function createTab(settings = DEFAULT_SETTINGS, timelineText = "") {
   tabSeq += 1;
   const t = {
-    id: "w" + tabSeq, seq: tabSeq, name: `タイマー${tabSeq}`,
-    settings: { ...settings }, timelineText, source: null, run: idleRun(),
+    id: `w${tabSeq}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    seq: tabSeq, name: `タイマー${tabSeq}`,
+    settings: { ...settings }, timelineText, source: null, legacyTimeline: false, run: idleRun(),
   };
   reparseTimeline(t);
   return t;
@@ -527,24 +540,32 @@ function setInputsDisabled(disabled) {
 }
 
 function applyRunControls() {
-  const running = activeTab().run.running;
+  const t = activeTab();
+  const running = t.run.running;
+  // 計測中のタブの設定が別のブラウザのタブで変わっても、計測に使っている値を表示し続ける（WAVE-053）
+  const shown = running ? t.run.settings : t.settings;
+  settingInputs.forEach(el => { el.value = shown[el.id]; });
   startBtn.disabled = running;
   stopBtn.disabled = !running;
   setInputsDisabled(running);
 }
 
-// --- 設定、タイムライン、計算元の自動保存（このブラウザのみ。WAVE-050〜WAVE-052） ---
+// --- 設定、タイムライン、計算元の自動保存（このブラウザのみ。WAVE-050〜WAVE-053） ---
 const WAVE_STORAGE_KEY = "waveTimerTabs";
 const LEGACY_SETTINGS_KEY = "waveTimerSettings";
 const LEGACY_PASTE_KEY = "waveTimerPastedTimeline";
 
+// 別のブラウザのタブの保存を読み直している間は保存しない（WAVE-053）
+let applyingExternalUpdate = false;
+
 function saveWaveState() {
+  if (applyingExternalUpdate) return true;
   try {
     localStorage.setItem(WAVE_STORAGE_KEY, JSON.stringify({
       version: 1, tabSeq, activeTabId,
       tabs: waveTabs.map(t => ({
         id: t.id, seq: t.seq, name: t.name, settings: t.settings,
-        timelineText: t.timelineText, source: t.source,
+        timelineText: t.timelineText, source: t.source, legacyTimeline: t.legacyTimeline,
       })),
     }));
     return true;
@@ -570,7 +591,7 @@ function restoreTabs() {
         id: t.id, seq: t.seq, name: t.name || "",
         settings: { ...DEFAULT_SETTINGS, ...(t.settings || {}) },
         timelineText: typeof t.timelineText === "string" ? t.timelineText : "",
-        source: t.source || null, run: idleRun(),
+        source: t.source || null, legacyTimeline: Boolean(t.legacyTimeline), run: idleRun(),
       };
       reparseTimeline(tab);
       return tab;
@@ -596,6 +617,8 @@ function restoreTabs() {
     // localStorageが使えない環境では何もしない
   }
   const first = createTab(settings, pasted);
+  // 旧形式の貼り付けは修正前の計算の結果のため、計算し直すよう知らせる（WAVE-077）
+  first.legacyTimeline = pasted.trim() !== "";
   waveTabs = [first];
   activeTabId = first.id;
 }
@@ -616,6 +639,7 @@ startBtn.addEventListener("click", () => {
     period: Math.max(1, readMinSec(periodMinInput, periodSecInput)),
     maxLife: Math.max(1, readMinSec(maxMinInput, maxSecInput)),
     extraDisplaySec: Math.max(0, parseInt(extraDisplayInput.value, 10) || 0),
+    settings: { ...t.settings },
   };
   applyRunControls();
   renderStack();
@@ -670,6 +694,7 @@ pasteBox.addEventListener("input", () => {
   const t = activeTab();
   t.timelineText = pasteBox.value;
   t.source = null;
+  t.legacyTimeline = false;
   reparseTimeline(t);
   fitPasteBoxFont();
   showSaveStatus(saveWaveState());
@@ -794,9 +819,11 @@ function showSourceStatus(text, warning) {
 }
 
 function renderSourceStatus() {
-  const source = activeTab().source;
+  const t = activeTab();
+  const source = t.source;
   if (!source) {
-    showSourceStatus("", false);
+    if (t.legacyTimeline) showSourceStatus("⚠ 旧形式から移したタイムラインです。集結タイムライン計算で計算し直して読み込んでください", true);
+    else showSourceStatus("", false);
     return;
   }
   const current = readSiegeTabs().find(s => s.id === source.siegeTabId);
@@ -821,6 +848,7 @@ loadSourceBtn.addEventListener("click", () => {
   const t = activeTab();
   t.timelineText = chosen.result.output;
   t.source = { siegeTabId: chosen.id, siegeTabName: chosen.label, revision: chosen.result.revision };
+  t.legacyTimeline = false;
   reparseTimeline(t);
   pasteBox.value = t.timelineText;
   fitPasteBoxFont();
@@ -831,7 +859,52 @@ loadSourceBtn.addEventListener("click", () => {
 
 // 別のブラウザのタブで集結タイムライン計算を計算し直したときも表示を更新する（WAVE-074）
 window.addEventListener("storage", e => {
+  if (e.key === WAVE_STORAGE_KEY) {
+    applyOwnExternalUpdate();
+    return;
+  }
   if (e.key !== null && e.key !== SIEGE_STORAGE_KEY) return;
+  renderSourceOptions();
+  renderSourceStatus();
+});
+
+// 別のブラウザのタブで自分の保存データが変わったら読み直し、後から保存した側が
+// もう一方のタブを消さないようにする。計測の状態は同じidのタブで引き継ぐ（WAVE-053）。
+function applyOwnExternalUpdate() {
+  const saved = readStoredJson(WAVE_STORAGE_KEY);
+  if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+  const savedIds = new Set(saved.tabs.map(t => t.id));
+  const ended = waveTabs.filter(t => t.run.running && !savedIds.has(t.id)).map(tabLabel);
+  const runs = new Map(waveTabs.map(t => [t.id, t.run]));
+  const keep = activeTabId;
+  restoreTabs();
+  waveTabs.forEach(t => { if (runs.has(t.id)) t.run = runs.get(t.id); });
+  if (waveTabs.some(t => t.id === keep)) activeTabId = keep;
+  applyingExternalUpdate = true;
+  try {
+    loadActiveTab();
+  } finally {
+    applyingExternalUpdate = false;
+  }
+  if (ended.length) {
+    // 知らせを消す前に続けて終えたタブも、名前を並べて知らせ続ける
+    endedTabNames.push(...ended);
+    externalNotice.textContent = `⚠ 計測中のタブ「${endedTabNames.join("」「")}」は、別のブラウザのタブで削除されたため計測を終えました`;
+  }
+  ensureLoop();
+}
+
+let endedTabNames = [];
+
+function clearExternalNotice() {
+  endedTabNames = [];
+  externalNotice.textContent = "";
+}
+
+// 別のページへ移って戻る（戻るボタンなどで復元される）間の保存は通知されないため、読み直す
+window.addEventListener("pageshow", e => {
+  if (!e.persisted) return;
+  applyOwnExternalUpdate();
   renderSourceOptions();
   renderSourceStatus();
 });
@@ -880,7 +953,6 @@ function updateTabIndicators() {
 
 function loadActiveTab() {
   const t = activeTab();
-  settingInputs.forEach(el => { el.value = t.settings[el.id]; });
   tabNameInput.value = tabLabel(t);
   pasteBox.value = t.timelineText;
   fitPasteBoxFont();
@@ -893,6 +965,7 @@ function loadActiveTab() {
 
 function switchTab(id) {
   if (id === activeTabId) return;
+  clearExternalNotice();
   activeTabId = id;
   loadActiveTab();
   saveWaveState();
@@ -914,6 +987,7 @@ tabList.addEventListener("keydown", e => {
 });
 
 document.getElementById("addTabBtn").addEventListener("click", () => {
+  clearExternalNotice();
   const t = createTab();
   waveTabs.push(t);
   activeTabId = t.id;
@@ -935,6 +1009,7 @@ deleteTabBtn.addEventListener("click", () => {
   const t = activeTab();
   const running = t.run.running ? "計測中のタイマーも止まります。" : "";
   if (!confirm(`タブ「${tabLabel(t)}」を削除します。${running}このタブの設定とタイムラインは元に戻せません。`)) return;
+  clearExternalNotice();
   const index = waveTabs.indexOf(t);
   waveTabs.splice(index, 1);
   activeTabId = (waveTabs[index] || waveTabs[index - 1]).id;

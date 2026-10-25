@@ -145,7 +145,7 @@ python tools/preview_output.py
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
 | `tests/test_agent_hooks.py` | Git保護と共有記憶のAgent Hook |
 | `tests/test_web_tool_checks.py` | Node.jsの版の固定、jsdomのlockfile、CIとDev Containerの手順、`tools/check_web.py`の失敗時の案内 |
-| `tests/web/*.test.js` | `web/`の実物のHTMLをjsdomで操作し、集結タイムライン計算の計算規則（`siege-timeline.md`の性質C1〜C9）、タブ、保存、周期ウェーブタイマーの計測と読み込みを検査 |
+| `tests/web/*.test.js` | `web/`の実物のHTMLをjsdomで操作し、集結タイムライン計算の計算規則（`siege-timeline.md`の性質C1〜C10）、タブ、保存、周期ウェーブタイマーの計測と読み込みを検査 |
 
 CP-SATを含むため全テストには数十秒かかります。変更中は対象テストを実行しても
 構いませんが、完了前には必ず `python tools/check.py` を実行します。
