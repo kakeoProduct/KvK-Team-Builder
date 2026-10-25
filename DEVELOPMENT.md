@@ -8,6 +8,7 @@
 - Windows 11
 - 一般的なLinux環境
 - Python 3.11、3.12
+- Node.js（`.node-version`に書いた版。`web/`のHTMLの検査に使う。ADR 0030）
 
 パス操作と品質チェックはPythonで実装し、Bash、PowerShell、Makeのいずれにも
 依存しません。
@@ -27,12 +28,18 @@ docker run --rm hello-world
 ```
 
 同期Folderを避けた場所へRepositoryをcloneし、VS Codeで開いてからコマンドパレットの
-`Dev Containers: Reopen in Container`を実行します。初回作成時に`.[dev]`を自動で導入します。
-Container内のTerminalで次を実行し、開発環境を確認してください。
+`Dev Containers: Reopen in Container`を実行します。ContainerにはNode.jsとnpmが入っており、
+初回作成時に`.[dev]`と、`npm ci`でjsdomを自動で導入します。Container内のTerminalで次を実行し、
+開発環境を確認してください。
 
 ```text
+node --version
 python tools/check.py
 ```
+
+Node.jsを加える前（ADR 0030より前）に作成したContainerにはNode.jsがなく、品質ゲートが
+「Node.jsが見つかりません」で失敗します。`Dev Containers: Rebuild Container`で作り直してください。
+Windowsから共有した作業ツリーでは`node_modules/`の読み込みが遅く、`web/`の検査に数十秒かかることがあります。
 
 Windowsから共有した作業ツリーはContainer内でroot所有に見え、そのままではGitが「dubious
 ownership」で停止します。Containerは起動のたびに`postStartCommand`で
@@ -65,6 +72,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+npm ci
 ```
 
 Windows PowerShell:
@@ -74,7 +82,13 @@ py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
+npm ci
 ```
+
+`npm ci`の前に、`.node-version`に書いた版のNode.jsを入れてください。公式サイトの
+インストーラー、またはnvmやfnmなどの版管理ツールを使えます。`npm ci`は`package-lock.json`の
+とおりにjsdomを`node_modules/`へ入れます。Node.jsまたはjsdomがない環境では、品質ゲートは
+入れ方を示して失敗します（ADR 0030）。
 
 ## 品質チェック
 
@@ -86,10 +100,13 @@ python tools/check.py
 
 このコマンドは次を順に実行し、1つでも失敗すると非0で終了します。
 
-1. Ruffフォーマット確認
-2. Ruff Lint
-3. mypy型検査
-4. pytest全テスト
+1. Claude Code設定の同期の確認
+2. Ruffフォーマット確認
+3. Ruff Lint
+4. mypy型検査
+5. pytest全テスト
+6. `web/`の集結タイムライン計算と周期ウェーブタイマーを、Node.jsとjsdomで実物のまま動かす検査
+   （`tools/check_web.py`、`tests/web/`）
 
 自動修正できるフォーマットとLintを適用してから全チェックを行う場合は、次を実行します。
 
@@ -127,6 +144,8 @@ python tools/preview_output.py
 | `tests/test_integration.py` | 実運用サンプルを使った一連の処理 |
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
 | `tests/test_agent_hooks.py` | Git保護と共有記憶のAgent Hook |
+| `tests/test_web_tool_checks.py` | Node.jsの版の固定、jsdomのlockfile、CIとDev Containerの手順、`tools/check_web.py`の失敗時の案内 |
+| `tests/web/*.test.js` | `web/`の実物のHTMLをjsdomで操作し、集結タイムライン計算の計算規則（`siege-timeline.md`の性質C1〜C9）、タブ、保存、周期ウェーブタイマーの計測と読み込みを検査 |
 
 CP-SATを含むため全テストには数十秒かかります。変更中は対象テストを実行しても
 構いませんが、完了前には必ず `python tools/check.py` を実行します。
