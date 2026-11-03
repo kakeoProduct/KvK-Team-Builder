@@ -1,762 +1,696 @@
 "use strict";
 // 集結タイムライン計算（web/攻城タイムライン計算.html）を実物のまま動かす検査。
-// 要件IDはdocs/requirements/web-tools/siege-timeline.mdを参照する。
+// 要件IDと性質はdocs/requirements/web-tools/siege-timeline.mdを参照する。
+// 期待値は要件の式から手で求めた値であり、実装の出力を書き写したものではない。
 
-const fs = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  openSiege, storageOf, setValue, $, $$, tabs, selectedTab, clickTab,
-  fillSiege, calculate, createRandom, randomSiegeCase,
+  DEFAULT_PET_BONUS, createClock, openSiege, storageOf, readJson, setValue, setChecked, $, $$,
+  fillSiege, calculate, createRandom, randomSiegeCase, STORAGE_FAILURES,
 } = require("./helpers");
-const { checkProperties, parseReference } = require("./siege-properties");
-const { CASES, SHARDS, SEED, shardCases } = require("./siege-random");
+const { checkProperties, toSeconds } = require("./siege-properties");
+const { CASES, SHARDS, shardCases } = require("./siege-random");
 
-const EXAMPLE_1 = {
+// 例1: 削りの集結5分、メイン／増援の集結3分、フェーズ間隔1秒、バッファ30秒。
+// Bは速度ペットLv8（+30%）を採用し、行軍は100 ÷ 1.3 = 76.9…を四捨五入した77秒（SIEGE-019）。
+const EXAMPLE1 = {
   settings: { kz: 5, mr: 3, gap: 1, buf: 30 },
+  petSame: null,
   members: [
-    ["メイン", "M", 10], ["増援", "R", 10],
-    ["削り", "A", 30], ["削り", "B", 20], ["削り", "C", 10],
-    ["削り", "D", 5], ["削り", "E", 15], ["削り", "F", 25],
+    { role: "メイン", label: "M", march: 60 },
+    { role: "増援", label: "R", march: 40 },
+    { role: "削り", label: "A", march: 30 },
+    { role: "削り", label: "B", march: 100, pet: 8, usePet: true },
+    { role: "削り", label: "C", march: 50 },
   ],
-  patterns: [["A", "B", "C"], ["D"], ["E", "F"]],
-};
-const EXAMPLE_2 = {
-  settings: { kz: 5, mr: 2, gap: 3, buf: 15 },
-  members: [
-    ["メイン", "M0", 0],
-    ["削り", "K0", 9], ["削り", "K1", 11], ["削り", "K2", 126], ["削り", "K3", 75],
-    ["削り", "K4", 37], ["削り", "K5", 126], ["削り", "K6", 140], ["削り", "K7", 44],
+  patterns: [
+    { kezuri: ["A", "B"], reinforce: ["R"] },
+    { kezuri: ["C"], reinforce: [] },
   ],
-  patterns: [["K0", "K3"], ["K4"], ["K2", "K4", "K5", "K6"]],
 };
-const EXAMPLE_3 = {
-  settings: { kz: 5, mr: 2, gap: 2, buf: 40 },
-  members: [
-    ["メイン", "M0", 48], ["メイン", "M1", 44],
-    ["削り", "K0", 145], ["削り", "K1", 18], ["削り", "K2", 4], ["削り", "K3", 110],
-  ],
-  patterns: [["K3"], ["K0", "K2"]],
-};
+// 1周目①: T = max(0, A 0+300+30, B 0+300+77, M 0+180+60-1, R 0+180+40-2) = 377。
+//   使用可能時刻は A 407+30、B 454+30、M 438+30、R 419+30 になる。
+// 1周目②: T = max(0, C 0+300+50, M 468+180+60-1) = 707。C 757+30、M 768+30。
+// 2周目①: T = max(A 437+330, B 484+377, M 798+239, R 449+218) = 1037。
+// 2周目②: T = max(C 787+350, M 1128+239) = 1367。周期は1037 - 377 = 660秒（SIEGE-017）。
+const EXAMPLE1_ROUND1 = [
+  "①A+B→メイン→増援",
+  "0分00秒 → ①B（5分集結）※行軍77秒（6分17秒着、7分34秒帰還）",
+  "0分47秒 → ①A（5分集結）※行軍30秒（6分17秒着、6分47秒帰還）",
+  "2分18秒 → ①M（3分集結）※行軍60秒（6分18秒着、7分18秒帰還）",
+  "2分39秒 → ①R（3分集結）※行軍40秒（6分19秒着、6分59秒帰還）",
+  "",
+  "②C→メイン",
+  "5分57秒 → ②C（5分集結）※行軍50秒（11分47秒着、12分37秒帰還）",
+  "7分48秒 → ②M（3分集結）※行軍60秒（11分48秒着、12分48秒帰還）",
+].join("\n");
+const EXAMPLE1_ROUND2 = [
+  "①A+B→メイン→増援",
+  "11分00秒 → ①B（5分集結）※行軍77秒（17分17秒着、18分34秒帰還）",
+  "11分47秒 → ①A（5分集結）※行軍30秒（17分17秒着、17分47秒帰還）",
+  "13分18秒 → ①M（3分集結）※行軍60秒（17分18秒着、18分18秒帰還）",
+  "13分39秒 → ①R（3分集結）※行軍40秒（17分19秒着、17分59秒帰還）",
+  "",
+  "②C→メイン",
+  "16分57秒 → ②C（5分集結）※行軍50秒（22分47秒着、23分37秒帰還）",
+  "18分48秒 → ②M（3分集結）※行軍60秒（22分48秒着、23分48秒帰還）",
+].join("\n");
+const EXAMPLE1_OUTPUT = `${EXAMPLE1_ROUND1}\n\n周期：11分00秒`;
+const EXAMPLE1_REFERENCE = `【1周目】\n${EXAMPLE1_ROUND1}\n\n【2周目】\n${EXAMPLE1_ROUND2}\n\n周期：11分00秒`;
 
-function run(testCase, dom = openSiege()) {
-  fillSiege(dom, testCase);
-  return calculate(dom);
+const SAMPLE_MEMBERS = [
+  ["メイン", "メイン"], ["増援", "増援"],
+  ["削り", "A"], ["削り", "B"], ["削り", "C"], ["削り", "D"], ["削り", "E"], ["削り", "F"],
+];
+
+function memberRows(dom) {
+  return $$(dom, "#memberBody tr").map(row => [
+    row.querySelector(".role-select").value, row.querySelector(".label-input").value,
+  ]);
 }
 
-function savedTabs(dom) {
-  return JSON.parse(dom.window.localStorage.getItem("siegeCalcTabs"));
+// パターンごとに、名前と、選んだ削りと増援のラベルを返す。
+function patternSelections(dom) {
+  return $$(dom, ".pattern-block").map(block => {
+    const checked = type => Array.from(block.querySelectorAll(`input[data-type="${type}"]:checked`))
+      .map(box => box.parentElement.textContent.trim());
+    return [block.querySelector(".pattern-name-input").value, checked("kezuri"), checked("reinforce")];
+  });
 }
 
-test.describe("計算規則（SIEGE-011〜SIEGE-021）", () => {
-  test("例1: 定義順に確定し、周期は全員の待ち時間を守る最小値になる", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_1, dom);
+function open(t, options) {
+  const dom = openSiege(options);
+  t.after(() => dom.window.close());
+  return dom;
+}
 
-    assert.deepEqual(checkProperties(EXAMPLE_1, output, reference), []);
-    // 出力の書式（SIEGE-020、SIEGE-024）は周期ウェーブタイマーが読むため変えない。
-    assert.equal(output, [
-      "①A+B+C→メイン→増援",
-      "0分00秒 → A（5分集結）※行軍30秒（5分30秒着、6分00秒帰還）",
-      "0分10秒 → B（5分集結）※行軍20秒（5分30秒着、5分50秒帰還）",
-      "0分20秒 → C（5分集結）※行軍10秒（5分30秒着、5分40秒帰還）",
-      "2分21秒 → M（3分集結）※行軍10秒（5分31秒着、5分41秒帰還）",
-      "2分22秒 → R（3分集結）※行軍10秒（5分32秒着、5分42秒帰還）",
-      "",
-      "②D→メイン→増援",
-      "4分15秒 → D（5分集結）※行軍5秒（9分20秒着、9分25秒帰還）",
-      "6分11秒 → M（3分集結）※行軍10秒（9分21秒着、9分31秒帰還）",
-      "6分12秒 → R（3分集結）※行軍10秒（9分22秒着、9分32秒帰還）",
-      "",
-      "③E+F→メイン→増援",
-      "7分55秒 → E（5分集結）※行軍15秒（13分10秒着、13分25秒帰還）",
-      "7分45秒 → F（5分集結）※行軍25秒（13分10秒着、13分35秒帰還）",
-      "10分01秒 → M（3分集結）※行軍10秒（13分11秒着、13分21秒帰還）",
-      "10分02秒 → R（3分集結）※行軍10秒（13分12秒着、13分22秒帰還）",
-      "",
-      "周期：11分30秒",
-    ].join("\n"));
-    // 2周目は1周目の全時刻へ周期を足したもの（SIEGE-021）。
-    const { rounds } = parseReference(reference);
-    assert.equal(rounds[1][0].lines[0].launch, 0 + 690);
-    assert.equal(rounds[1][2].lines[3].ret, 802 + 690);
+function rowOf(dom, label) {
+  return $$(dom, "#memberBody tr").find(row => row.querySelector(".label-input").value === label);
+}
+
+// 出力のうち、指定したパターンの行の時刻をすべてdelta秒ずらす（性質の検査の検出力を確かめる）。
+function shiftPattern(text, name, delta) {
+  const format = sec => `${Math.floor(sec / 60)}分${String(sec % 60).padStart(2, "0")}秒`;
+  return text.split("\n").map(line => line.includes(` → ${name}`)
+    ? line.replace(/(\d+)分(\d{2})秒/g, time => format(toSeconds(time) + delta))
+    : line).join("\n");
+}
+
+test.describe("計算規則と出力（SIEGE-010〜SIEGE-025、性質C1〜C3、C8〜C12）", () => {
+  test("例1: 定義順に確定し、手で求めた1周目、2周目、周期を出力する", t => {
+    const dom = open(t);
+    fillSiege(dom, EXAMPLE1);
+    // 速度ペットありの行軍秒数を、四捨五入して表示する（SIEGE-007）。
+    assert.equal(rowOf(dom, "B").querySelector(".march-pet-output").value, "77");
+    assert.equal(rowOf(dom, "A").querySelector(".march-pet-output").value, "（ペットなし）");
+    const { output, reference } = calculate(dom);
+    assert.equal(output, EXAMPLE1_OUTPUT);
+    assert.equal(reference, EXAMPLE1_REFERENCE);
+    assert.equal($(dom, "#outputCard").style.display, "block");
+    assert.equal($(dom, "#refOutputCard").style.display, "block");
+    assert.deepEqual(checkProperties(EXAMPLE1, output, reference), []);
   });
 
-  test("性質の検査は、周期が短すぎる出力と2周目の時刻のずれを違反として検出する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_1, dom);
-    // 以前の実装は例1で周期を7分40秒と出していた。
-    const shortCycle = text => text.replace("周期：11分30秒", "周期：7分40秒");
-    const violations = checkProperties(EXAMPLE_1, shortCycle(output), shortCycle(reference));
-    assert.ok(violations.some(v => v.startsWith("C5:")), violations.join("\n"));
-    assert.ok(violations.some(v => v.startsWith("C6:")), violations.join("\n"));
-    const shifted = reference.replace(/【2周目】\n①A\+B\+C→メイン→増援\n11分30秒/, "【2周目】\n①A+B+C→メイン→増援\n11分00秒");
-    assert.notEqual(shifted, reference);
-    assert.ok(checkProperties(EXAMPLE_1, output, shifted).some(v => v.startsWith("C3:")));
+  test("例1で採用をオフにすると、速度ペットがあってもペットなしの行軍秒数を使う（SIEGE-019）", t => {
+    const dom = open(t);
+    fillSiege(dom, { ...EXAMPLE1, members: EXAMPLE1.members.map(m => m.label === "B" ? { ...m, usePet: false } : m) });
+    const { output } = calculate(dom);
+    // ①のTは B 0+300+100 = 400 になり、Bは0秒に発起して8分20秒に着く。
+    assert.match(output, /^①A\+B→メイン→増援\n0分00秒 → ①B（5分集結）※行軍100秒（6分40秒着、8分20秒帰還）\n/);
   });
 
-  test("性質の検査は、負の時刻、待ち時間の違反、出力の不一致、構成の違いを検出する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_1, dom);
-    const has = (violations, name) => violations.some(v => v.startsWith(name + ":"));
-
-    // C1: 負の時刻
-    const negative = reference.replace("\n0分00秒 → A", "\n-1分00秒 → A");
-    assert.notEqual(negative, reference);
-    assert.ok(has(checkProperties(EXAMPLE_1, output, negative), "C1"));
-    // C2: 同じ出力でもバッファが長ければ、次の発起が帰還+バッファより早い
-    const longBuffer = { ...EXAMPLE_1, settings: { ...EXAMPLE_1.settings, buf: 600 } };
-    assert.ok(has(checkProperties(longBuffer, output, reference), "C2"));
-    // C8: 1周目の出力が参考の1周目と食い違う
-    const edited = output.replace("0分10秒 → B", "0分11秒 → B");
-    assert.notEqual(edited, output);
-    assert.ok(has(checkProperties(EXAMPLE_1, edited, reference), "C8"));
-    // C9: 入力と違うパターン数、削りの欠落、増援の欠落
-    assert.ok(has(checkProperties({ ...EXAMPLE_1, patterns: [["A", "B", "C"], ["D"]] }, output, reference), "C9"));
-    assert.ok(has(checkProperties({ ...EXAMPLE_1, patterns: [["A", "B", "C", "F"], ["D"], ["E", "F"]] }, output, reference), "C9"));
-    const withoutReinforcement = reference.replace(/\n2分22秒 → R（[^\n]+/, "");
-    assert.notEqual(withoutReinforcement, reference);
-    assert.ok(has(checkProperties(EXAMPLE_1, output, withoutReinforcement), "C9"));
-  });
-
-  test("性質の検査は、必要以上に遅い着弾（C10）を検出する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_2, dom);
-    const shiftTimes = (text, seconds) => text.replace(/(\d+)分(\d{2})秒/g, (_, m, s) => {
-      const total = Number(m) * 60 + Number(s) + seconds;
-      return `${Math.floor(total / 60)}分${String(total % 60).padStart(2, "0")}秒`;
-    });
-    // 1周目の③だけを全員1秒遅らせる。参考と出力の両方で同じに変えるため、C8は成り立つ。
-    const start = reference.indexOf("\n③");
-    const end = reference.indexOf("\n【2周目】");
-    const late = reference.slice(0, start) + shiftTimes(reference.slice(start, end), 1) + reference.slice(end);
-    const lateOutput = `${late.split("\n【2周目】\n")[0].replace(/^【1周目】\n/, "")}\n${output.split("\n").pop()}`;
-    const violations = checkProperties(EXAMPLE_2, lateOutput, late);
-    assert.ok(violations.some(v => v.startsWith("C10:")), violations.join("\n"));
-    assert.ok(!violations.some(v => v.startsWith("C8:")), violations.join("\n"));
-
-    // 2周とも全時刻を1秒遅らせると、周期と時刻の差は変わらずC1〜C9は成り立ち、C10だけが違反になる。
-    const cycleLine = output.split("\n").pop();
-    const allLate = shiftTimes(reference.replace(/\n周期：.+$/, ""), 1) + "\n" + cycleLine;
-    const allLateOutput = shiftTimes(output.replace(/\n周期：.+$/, ""), 1) + "\n" + cycleLine;
-    const onlyC10 = checkProperties(EXAMPLE_2, allLateOutput, allLate);
-    assert.ok(onlyC10.length > 0);
-    assert.deepEqual([...new Set(onlyC10.map(v => v.split(":")[0]))], ["C10"], onlyC10.join("\n"));
-  });
-
-  test("性質の検査は、必要以上に長い周期（C7）と2周目の順番の入れ替わり（C4）を検出する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_1, dom);
-    const has = (violations, name) => violations.some(v => v.startsWith(name + ":"));
-    const shiftTimes = (text, seconds) => text.replace(/(\d+)分(\d{2})秒/g, (_, m, s) => {
-      const total = Number(m) * 60 + Number(s) + seconds;
-      return `${Math.floor(total / 60)}分${String(total % 60).padStart(2, "0")}秒`;
-    });
-    const [firstRound, secondRound] = reference.split("【2周目】");
-
-    // 周期と2周目の全時刻を60秒遅らせても、C1〜C6とC8は成り立ち、C7だけが違反になる。
-    const longCycle = text => text.replace("周期：11分30秒", "周期：12分30秒");
-    const late = `${firstRound}【2周目】${shiftTimes(secondRound.replace(/\n周期：.+$/, ""), 60)}\n周期：12分30秒`;
-    assert.deepEqual(checkProperties(EXAMPLE_1, longCycle(output), late).map(v => v.split(":")[0]), ["C7"]);
-
-    // 2周目の①だけを大きく遅らせると、2周目の順番が1周目と変わる。
-    const [beforeSecond, afterFirstPattern] = secondRound.split("\n②");
-    const reordered = `${firstRound}【2周目】${shiftTimes(beforeSecond, 3000)}\n②${afterFirstPattern}`;
-    assert.ok(has(checkProperties(EXAMPLE_1, output, reordered), "C4"));
-  });
-
-  test("削りを選んでいないパターンを途中に含んでも、メインと増援で着弾を決める（SIEGE-012、SIEGE-024）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
+  test("例2: メインが0人なら、削りだけのパターンは独立に進み、2周目のブロックは発起の早い順に並ぶ（SIEGE-018、SIEGE-024、SIEGE-025）", t => {
+    // メインが0人でもメッセージを出さずに計算する（SIEGE-018）。出力の全文を比べるため、メッセージがないことも確かめる。
     const testCase = {
-      settings: { kz: 5, mr: 3, gap: 1, buf: 30 },
-      members: [["メイン", "M", 10], ["増援", "R", 10], ["削り", "A", 30], ["削り", "B", 20]],
-      patterns: [["A"], [], ["B"]],
+      settings: { kz: 5, mr: 3, gap: 1, buf: 0 },
+      petSame: null,
+      members: [{ role: "削り", label: "A", march: 1000 }, { role: "削り", label: "D", march: 0 }],
+      patterns: [{ kezuri: ["A"], reinforce: [] }, { kezuri: ["D"], reinforce: [] }, { kezuri: [], reinforce: [] }],
     };
-    const { output, reference } = run(testCase, dom);
+    const dom = open(t);
+    fillSiege(dom, testCase);
+    const { output, reference } = calculate(dom);
+    // 1周目: ① T=1300、② T=300。どちらも0秒に発起するため定義順。③は行がないため出さない。
+    // 2周目: ① T=2300+1300=3600、② T=300+300=600。②が先に発起する。60分以上も時間へ繰り上げない（SIEGE-022）。
+    const round1 = [
+      "①A→メイン",
+      "0分00秒 → ①A（5分集結）※行軍1000秒（21分40秒着、38分20秒帰還）",
+      "",
+      "②D→メイン",
+      "0分00秒 → ②D（5分集結）※行軍0秒（5分00秒着、5分00秒帰還）",
+    ].join("\n");
+    const round2 = [
+      "②D→メイン",
+      "5分00秒 → ②D（5分集結）※行軍0秒（10分00秒着、10分00秒帰還）",
+      "",
+      "①A→メイン",
+      "38分20秒 → ①A（5分集結）※行軍1000秒（60分00秒着、76分40秒帰還）",
+    ].join("\n");
+    assert.equal(output, `${round1}\n\n周期：38分20秒`);
+    assert.equal(reference, `【1周目】\n${round1}\n\n【2周目】\n${round2}\n\n周期：38分20秒`);
     assert.deepEqual(checkProperties(testCase, output, reference), []);
+  });
+
+  test("例3: 同じ発起の行は、メンバーの並びによらず削り、メイン、増援の順に並ぶ（SIEGE-024）", t => {
+    const testCase = {
+      settings: { kz: 3, mr: 3, gap: 0, buf: 0 },
+      petSame: null,
+      members: [
+        { role: "増援", label: "R", march: 0 },
+        { role: "メイン", label: "M", march: 0 },
+        { role: "削り", label: "A", march: 0 },
+      ],
+      patterns: [{ kezuri: ["A"], reinforce: ["R"] }],
+    };
+    const dom = open(t);
+    fillSiege(dom, testCase);
+    const { output, reference } = calculate(dom);
     assert.equal(output, [
       "①A→メイン→増援",
-      "0分00秒 → A（5分集結）※行軍30秒（5分30秒着、6分00秒帰還）",
-      "2分21秒 → M（3分集結）※行軍10秒（5分31秒着、5分41秒帰還）",
-      "2分22秒 → R（3分集結）※行軍10秒（5分32秒着、5分42秒帰還）",
+      "0分00秒 → ①A（3分集結）※行軍0秒（3分00秒着、3分00秒帰還）",
+      "0分00秒 → ①M（3分集結）※行軍0秒（3分00秒着、3分00秒帰還）",
+      "0分00秒 → ①R（3分集結）※行軍0秒（3分00秒着、3分00秒帰還）",
       "",
-      "②→メイン→増援",
-      "6分11秒 → M（3分集結）※行軍10秒（9分21秒着、9分31秒帰還）",
-      "6分12秒 → R（3分集結）※行軍10秒（9分22秒着、9分32秒帰還）",
-      "",
-      "③B→メイン→増援",
-      "7分50秒 → B（5分集結）※行軍20秒（13分10秒着、13分30秒帰還）",
-      "10分01秒 → M（3分集結）※行軍10秒（13分11秒着、13分21秒帰還）",
-      "10分02秒 → R（3分集結）※行軍10秒（13分12秒着、13分22秒帰還）",
-      "",
-      "周期：11分30秒",
+      "周期：3分00秒",
     ].join("\n"));
+    assert.deepEqual(checkProperties(testCase, output, reference), []);
   });
 
-  test("削りを選んでいないパターンを含む決定的な乱数の入力100件でも、性質C1〜C10に違反しない", t => {
-    // 既存の1000件（siege-random.js）の入力を変えないよう、別のSeedで空のパターンを許して作る。
-    const rnd = createRandom(2468);
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const failures = [];
-    let empty = 0;
-    let emptyFirst = 0;
-    let allEmpty = 0;
-    for (let i = 0; i < 100; i++) {
-      const testCase = randomSiegeCase(rnd, { allowEmptyPattern: true });
-      empty += testCase.patterns.filter(p => p.length === 0).length;
-      if (testCase.patterns[0].length === 0) emptyFirst++;
-      if (testCase.patterns.every(p => p.length === 0)) allEmpty++;
-      const { output, reference } = run(testCase, dom);
-      const violations = checkProperties(testCase, output, reference);
-      if (violations.length) failures.push({ index: i, testCase, violations });
-    }
-    assert.ok(empty > 0, "空のパターンが1件もない");
-    assert.ok(emptyFirst > 0, "先頭が空の入力が1件もない");
-    assert.ok(allEmpty > 0, "すべて空の入力が1件もない");
-    assert.deepEqual(failures.slice(0, 3), [], `違反した入力は${failures.length}件`);
-  });
-
-  test("例2: 同じ削りが複数のパターンに入っても性質を満たす", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_2, dom);
-    assert.deepEqual(checkProperties(EXAMPLE_2, output, reference), []);
-  });
-
-  test("例3: パターンごとに戻りの間隔が違っても周期は630秒になる", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_3, dom);
-    assert.deepEqual(checkProperties(EXAMPLE_3, output, reference), []);
-    assert.match(output, /\n周期：10分30秒$/);
-  });
-
-  test("決定的な乱数の入力は1000件以上を、分けたファイルで漏れなく検査する", () => {
-    // 検査の本体はsiege-random-{番号}.test.jsにある。
-    assert.ok(CASES >= 1000);
-    const indexes = [];
-    for (let shard = 1; shard <= SHARDS; shard++) {
-      const file = path.join(__dirname, `siege-random-${shard}.test.js`);
-      assert.ok(fs.existsSync(file), `shard ${shard}`);
-      // 複写の誤りで同じ組を2回検査し、別の組を検査しない事態を防ぐ。
-      assert.match(fs.readFileSync(file, "utf8"), new RegExp(`\\.runShard\\(${shard}\\);`));
-      indexes.push(...shardCases(shard).map(c => c.index));
-    }
-    assert.deepEqual(indexes.sort((a, b) => a - b), Array.from({ length: CASES }, (_, i) => i));
-    const shardFiles = fs.readdirSync(__dirname).filter(name => /^siege-random-\d+\.test\.js$/.test(name));
-    assert.equal(shardFiles.length, SHARDS);
-  });
-
-  test("乱数の入力はメイン1〜2人、増援0〜2人、削り1〜8人、パターン1〜5件の範囲にある", () => {
-    const rnd = createRandom(SEED);
-    const seen = { reinforcements: new Set(), patterns: new Set() };
-    for (let i = 0; i < CASES; i++) {
-      const { members, patterns } = randomSiegeCase(rnd);
-      const count = role => members.filter(m => m[0] === role).length;
-      assert.ok(count("メイン") >= 1 && count("メイン") <= 2);
-      assert.ok(count("削り") >= 1 && count("削り") <= 8);
-      seen.reinforcements.add(count("増援"));
-      seen.patterns.add(patterns.length);
-    }
-    // 増援なしの編成（D8）と複数パターンを含むことを確かめる。
-    assert.deepEqual([...seen.reinforcements].sort(), [0, 1, 2]);
-    assert.deepEqual([...seen.patterns].sort(), [1, 2, 3, 4, 5]);
-  });
-
-  test("増援が0人でも計算する（SIEGE-018）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const { output, reference } = run(EXAMPLE_3, dom);
-    assert.doesNotMatch(output, /メインの?メンバーがいません/);
-    assert.deepEqual(checkProperties(EXAMPLE_3, output, reference), []);
-  });
-
-  test("メインが0人の場合は計算せずに知らせ、前回の参考結果は残す（SIEGE-033、SIEGE-034）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const previous = run(EXAMPLE_1, dom);
-    const noMain = {
-      settings: EXAMPLE_1.settings,
-      members: EXAMPLE_1.members.filter(m => m[0] !== "メイン"),
-      patterns: EXAMPLE_1.patterns,
+  test("例4: 選んだ順によらず、見出しの削りと、同じ発起で同じ役割の行は、メンバー表の順に並ぶ（SIEGE-024）", t => {
+    const testCase = {
+      settings: { kz: 3, mr: 3, gap: 0, buf: 0 },
+      petSame: null,
+      members: [
+        { role: "削り", label: "K2", march: 10 },
+        { role: "削り", label: "K0", march: 10 },
+        { role: "削り", label: "K1", march: 10 },
+        { role: "メイン", label: "M", march: 0 },
+      ],
+      // fillSiegeはこの順（メンバー表と違う順）にクリックする。
+      patterns: [{ kezuri: ["K1", "K0", "K2"], reinforce: [] }],
     };
-    const { output, reference } = run(noMain, dom);
-    assert.equal(output, "メイン役割のメンバーがいません");
-    // 利用者の決定（2026-10-25）: 前回の参考結果は表示したまま保存する。
-    assert.equal(reference, previous.reference);
-    assert.equal($(dom, "#refOutputCard").style.display, "block");
-    const saved = savedTabs(dom).tabs[0].result;
-    assert.equal(saved.ok, false);
-    assert.equal(saved.output, "メイン役割のメンバーがいません");
-    assert.equal(saved.reference, previous.reference);
+    const dom = open(t);
+    fillSiege(dom, testCase);
+    const { output, reference } = calculate(dom);
+    // T = max(0, 削り 0+180+10, M 0+180+0-0) = 190。削りは0秒に発起し190秒に着いて200秒に帰還する。
+    // 2周目: T = max(削り 200+190, M 190+180) = 390。周期は390 - 190 = 200秒（SIEGE-017）。
+    const round1 = [
+      "①K2+K0+K1→メイン",
+      "0分00秒 → ①K2（3分集結）※行軍10秒（3分10秒着、3分20秒帰還）",
+      "0分00秒 → ①K0（3分集結）※行軍10秒（3分10秒着、3分20秒帰還）",
+      "0分00秒 → ①K1（3分集結）※行軍10秒（3分10秒着、3分20秒帰還）",
+      "0分10秒 → ①M（3分集結）※行軍0秒（3分10秒着、3分10秒帰還）",
+    ].join("\n");
+    assert.equal(output, `${round1}\n\n周期：3分20秒`);
+    assert.deepEqual(checkProperties(testCase, output, reference), []);
+    // 見出しのラベルと、同じ発起の削りの行を入れ替えると、性質の検査がSIEGE-024として検出する。
+    const names = violations => [...new Set(violations.map(v => v.split(":")[0]))].sort();
+    const swapHeader = text => text.replaceAll("①K2+K0+K1", "①K0+K2+K1");
+    assert.deepEqual(names(checkProperties(testCase, swapHeader(output), swapHeader(reference))), ["SIEGE-024"]);
+    const swapLines = text => text.replaceAll("→ ①K2（", "→ ①TMP（").replaceAll("→ ①K0（", "→ ①K2（").replaceAll("→ ①TMP（", "→ ①K0（");
+    assert.deepEqual(names(checkProperties(testCase, swapLines(output), swapLines(reference))), ["SIEGE-024"]);
   });
 
-  test("パターンが0件の場合は計算せずに知らせ、前回の参考結果は残す（SIEGE-032、SIEGE-034）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const previous = run(EXAMPLE_1, dom);
-    const { output, reference } = run({ ...EXAMPLE_1, patterns: [] }, dom);
+  test("メインが0人で増援だけを選んだパターンは、増援の着弾からTを決める（SIEGE-012、SIEGE-014、SIEGE-018）", t => {
+    const testCase = {
+      settings: { kz: 3, mr: 3, gap: 1, buf: 0 },
+      petSame: null,
+      members: [{ role: "削り", label: "K", march: 20 }, { role: "増援", label: "R", march: 10 }],
+      patterns: [{ kezuri: [], reinforce: ["R"] }, { kezuri: ["K"], reinforce: [] }],
+    };
+    const dom = open(t);
+    fillSiege(dom, testCase);
+    const { output, reference } = calculate(dom);
+    // ①: T = max(0, R 0+180+10-2) = 188。Rは190秒に着き200秒に帰還する。
+    // ②: T = max(0, K 0+180+20) = 200。2周目①: T = 200+188 = 388。周期は388 - 188 = 200秒。
+    assert.equal(output, [
+      "①→メイン→増援",
+      "0分00秒 → ①R（3分集結）※行軍10秒（3分10秒着、3分20秒帰還）",
+      "",
+      "②K→メイン",
+      "0分00秒 → ②K（3分集結）※行軍20秒（3分20秒着、3分40秒帰還）",
+      "",
+      "周期：3分20秒",
+    ].join("\n"));
+    assert.deepEqual(checkProperties(testCase, output, reference), []);
+  });
+
+  test("削りを選ばないパターンは、メインと増援で着弾を決める（SIEGE-012、SIEGE-018）", t => {
+    const testCase = {
+      settings: { kz: 5, mr: 3, gap: 2, buf: 10 },
+      petSame: null,
+      members: [{ role: "メイン", label: "M", march: 20 }, { role: "増援", label: "R", march: 50 }, { role: "削り", label: "A", march: 10 }],
+      patterns: [{ kezuri: [], reinforce: ["R"] }, { kezuri: ["A"], reinforce: [] }],
+    };
+    const dom = open(t);
+    fillSiege(dom, testCase);
+    const { output, reference } = calculate(dom);
+    // ①: T = max(0, M 0+180+20-2, R 0+180+50-4) = 226。Rは0秒に発起し、228秒にMが、230秒にRが着く。
+    assert.match(output, /^①→メイン→増援\n0分00秒 → ①R（3分集結）※行軍50秒（3分50秒着、4分40秒帰還）\n/);
+    assert.deepEqual(checkProperties(testCase, output, reference), []);
+  });
+
+  test("パターンが0件なら時刻を計算せずに知らせ、参考の結果と周期ウェーブタイマーへ渡す結果は変えない（SIEGE-032）", t => {
+    const dom = open(t);
+    fillSiege(dom, EXAMPLE1);
+    calculate(dom);
+    const saved = dom.window.localStorage.getItem("siegeTimelineForWaveTimer");
+    while ($$(dom, ".del-pattern-btn").length) $(dom, ".del-pattern-btn").click();
+    assert.equal($(dom, "#patternList .empty").textContent, "パターンがありません");
+    const { output, reference } = calculate(dom);
     assert.equal(output, "パターンが設定されていません。");
-    assert.equal(reference, previous.reference);
-    assert.equal($(dom, "#refOutputCard").style.display, "block");
-    const saved = savedTabs(dom).tabs[0].result;
-    assert.equal(saved.ok, false);
-    assert.equal(saved.reference, previous.reference);
+    assert.equal(reference, EXAMPLE1_REFERENCE);
+    assert.equal(dom.window.localStorage.getItem("siegeTimelineForWaveTimer"), saved);
+  });
+
+  test("初めての計算でパターンが0件なら、参考の結果を出さず、渡す結果も保存しない（SIEGE-032）", t => {
+    const dom = open(t);
+    while ($$(dom, ".del-pattern-btn").length) $(dom, ".del-pattern-btn").click();
+    const { output, reference } = calculate(dom);
+    assert.equal(output, "パターンが設定されていません。");
+    assert.equal(reference, "");
+    assert.equal($(dom, "#refOutputCard").style.display, "none");
+    assert.equal(dom.window.localStorage.getItem("siegeTimelineForWaveTimer"), null);
+  });
+
+  test("決定的な乱数（種7）の100件を、ボーナスの既定値のまま1つのページで続けて計算しても性質を満たす（削りを選ばないパターンを含む）", t => {
+    const rnd = createRandom(7);
+    const dom = open(t);
+    const failures = [];
+    for (let i = 0; i < 100; i++) {
+      const testCase = randomSiegeCase(rnd);
+      fillSiege(dom, testCase);
+      const { output, reference } = calculate(dom);
+      const violations = checkProperties(testCase, output, reference, { saved: readJson(dom, "siegeTimelineForWaveTimer") });
+      if (violations.length) failures.push({ i, violations });
+    }
+    assert.deepEqual(failures.slice(0, 3), []);
   });
 });
 
-test.describe("タブ（SIEGE-050〜SIEGE-054）", () => {
-  test("初回はサンプルの入ったタブ「計算1」を1つ表示する（SIEGE-006、SIEGE-042）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1"]);
-    assert.equal(selectedTab(dom).textContent, "計算1");
-    assert.equal($$(dom, "#memberBody tr").length, 8);
-    assert.equal($$(dom, ".pattern-block").length, 3);
-    assert.equal($(dom, "#deleteTabBtn").disabled, true);
-    assert.equal($(dom, "#outputCard").style.display, "none");
+test.describe("性質の検査が違反を検出する", () => {
+  const check = (output, reference, options) => checkProperties(EXAMPLE1, output, reference, options);
+  const names = violations => [...new Set(violations.map(v => v.split(":")[0]))].sort();
+
+  test("手で求めた例1の出力は、どの性質にも違反しない", () => {
+    assert.deepEqual(check(EXAMPLE1_OUTPUT, EXAMPLE1_REFERENCE), []);
   });
 
-  test("追加したタブは入力も計算結果も独立している", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    fillSiege(dom, EXAMPLE_1);
-    const first = calculate(dom).output;
+  test("着弾、発起、帰還のずれをC3で検出する", () => {
+    const wrong = text => text.replace("0分47秒 → ①A", "0分48秒 → ①A");
+    assert.ok(names(check(wrong(EXAMPLE1_OUTPUT), wrong(EXAMPLE1_REFERENCE))).includes("C3"));
+  });
 
-    $(dom, "#addTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1", "計算2"]);
-    assert.equal(selectedTab(dom).textContent, "計算2");
-    // 新しいタブは表示中のタブの入力を複製して始め、計算結果は写さない（SIEGE-051）。
-    assert.deepEqual($$(dom, ".label-input").map(input => input.value), EXAMPLE_1.members.map(m => m[1]));
-    assert.deepEqual($$(dom, ".march-input").map(input => input.value), EXAMPLE_1.members.map(m => String(m[2])));
+  test("必要以上に遅い着弾をC10で、待ち時間の違反をC2で検出する", () => {
+    // 最後に確定する2周目の②を10秒遅らせても、待ち時間と階段状の着弾は守られる。
+    const late = EXAMPLE1_REFERENCE.replace(EXAMPLE1_ROUND2, shiftPattern(EXAMPLE1_ROUND2, "②", 10));
+    assert.deepEqual(names(check(EXAMPLE1_OUTPUT, late)), ["C10"]);
+    // 1周目の②を100秒早めると、メインが①から戻る前に発起する。
+    const early = text => text.replace(EXAMPLE1_ROUND1, shiftPattern(EXAMPLE1_ROUND1, "②", -100));
+    const found = names(check(early(EXAMPLE1_OUTPUT), early(EXAMPLE1_REFERENCE)));
+    assert.ok(found.includes("C2") && found.includes("C10"), found.join(","));
+  });
+
+  test("周期の誤りをC11で、1周目の出力と参考の不一致をC8で検出する", () => {
+    const cycle = text => text.replace("周期：11分00秒", "周期：11分01秒");
+    assert.deepEqual(names(check(cycle(EXAMPLE1_OUTPUT), cycle(EXAMPLE1_REFERENCE))), ["C11"]);
+    // 性質C1〜C3、C9〜C12は参考の結果から判定するため、1周目の出力だけを変える。
+    assert.deepEqual(names(check(EXAMPLE1_OUTPUT.replace("7分48秒 → ②M", "7分49秒 → ②M"), EXAMPLE1_REFERENCE)), ["C8"]);
+  });
+
+  test("行軍の誤りをC12で、負の時刻をC1で、行の欠落と見出しの誤りをC9で検出する", () => {
+    const table = DEFAULT_PET_BONUS.map((v, i) => (i === 8 ? 40 : v));
+    assert.ok(names(check(EXAMPLE1_OUTPUT, EXAMPLE1_REFERENCE, { bonusTable: table })).includes("C12"));
+    const negative = text => text.replace("0分00秒 → ①B", "-1分00秒 → ①B");
+    assert.deepEqual(names(check(negative(EXAMPLE1_OUTPUT), negative(EXAMPLE1_REFERENCE))), ["C1"]);
+    const missing = text => text.replace(/\n0分47秒 → ①A.*/, "");
+    assert.deepEqual(names(check(missing(EXAMPLE1_OUTPUT), missing(EXAMPLE1_REFERENCE))), ["C9"]);
+    const header = text => text.replace("②C→メイン", "②C→メイン→増援");
+    assert.deepEqual(names(check(header(EXAMPLE1_OUTPUT), header(EXAMPLE1_REFERENCE))), ["C9"]);
+  });
+
+  test("行とブロックの並びの誤りをSIEGE-024、SIEGE-025で検出する", () => {
+    const lines = EXAMPLE1_ROUND1.split("\n");
+    const swapLines = [lines[0], lines[2], lines[1], ...lines.slice(3)].join("\n");
+    const swapBlocks = [...lines.slice(6), "", ...lines.slice(0, 5)].join("\n");
+    const replace = (from, to) => [
+      EXAMPLE1_OUTPUT.replace(from, to), EXAMPLE1_REFERENCE.replace(from, to),
+    ];
+    assert.deepEqual(names(check(...replace(EXAMPLE1_ROUND1, swapLines))), ["SIEGE-024"]);
+    assert.deepEqual(names(check(...replace(EXAMPLE1_ROUND1, swapBlocks))), ["SIEGE-025"]);
+  });
+
+  test("周期ウェーブタイマーへ渡す結果の誤りをSIEGE-045で検出する", () => {
+    const saved = { periodSec: 660, maxSec: 768, rawText: EXAMPLE1_OUTPUT };
+    assert.deepEqual(check(EXAMPLE1_OUTPUT, EXAMPLE1_REFERENCE, { saved }), []);
+    for (const wrong of [{ periodSec: 661 }, { maxSec: 757 }, { rawText: EXAMPLE1_ROUND1 }]) {
+      assert.deepEqual(names(check(EXAMPLE1_OUTPUT, EXAMPLE1_REFERENCE, { saved: { ...saved, ...wrong } })), ["SIEGE-045"]);
+    }
+  });
+});
+
+test.describe("決定的な乱数の入力", () => {
+  test(`${CASES}件を${SHARDS}個のファイルで漏れなく重複なく検査する`, () => {
+    const indexes = [];
+    for (let shard = 1; shard <= SHARDS; shard++) indexes.push(...shardCases(shard).map(c => c.index));
+    assert.deepEqual(indexes.sort((a, b) => a - b), Array.from({ length: CASES }, (_, i) => i));
+  });
+
+  test("入力は要件の範囲にあり、速度ペットのLv、採用、「全員同じ」、削りなしのパターンを含む", () => {
+    const all = [];
+    for (let shard = 1; shard <= SHARDS; shard++) all.push(...shardCases(shard).map(c => c.testCase));
+    const count = (testCase, role) => testCase.members.filter(m => m.role === role).length;
+    for (const testCase of all) {
+      assert.ok(count(testCase, "メイン") >= 1 && count(testCase, "メイン") <= 2);
+      assert.ok(count(testCase, "増援") <= 2);
+      assert.ok(count(testCase, "削り") >= 1 && count(testCase, "削り") <= 8);
+      assert.ok(testCase.patterns.length >= 1 && testCase.patterns.length <= 5);
+    }
+    const some = predicate => all.some(predicate);
+    assert.ok(some(c => c.members.some(m => m.pet === 0)));
+    for (let lv = 1; lv <= 8; lv++) assert.ok(some(c => c.members.some(m => m.pet === lv)), `Lv${lv}`);
+    assert.ok(some(c => c.members.some(m => m.pet && m.usePet === false)));
+    assert.ok(some(c => c.petSame === true) && some(c => c.petSame === false));
+    assert.ok(some(c => c.patterns.some(p => p.kezuri.length === 0)));
+    assert.ok(some(c => c.patterns.some(p => p.reinforce.length === 0) && count(c, "増援") > 0));
+  });
+});
+
+test.describe("入力（SIEGE-001〜SIEGE-009）", () => {
+  test("保存データがなければ、共通設定の既定値とサンプルを表示し、結果カードは出さない（SIEGE-001、SIEGE-006）", t => {
+    const dom = open(t);
+    assert.deepEqual(["kezuriRallyMin", "mainRallyMin", "phaseGap", "buffer"].map(id => $(dom, "#" + id).value), ["5", "3", "1", "30"]);
+    assert.deepEqual(memberRows(dom), SAMPLE_MEMBERS);
+    assert.ok($$(dom, ".march-input").every(input => input.value === "0"));
+    assert.deepEqual(patternSelections(dom), [
+      ["①", ["A", "B", "C"], ["増援"]],
+      ["②", ["D"], ["増援"]],
+      ["③", ["E", "F"], ["増援"]],
+    ]);
+    assert.equal($(dom, "#outputCard").style.display, "none");
+    assert.equal($(dom, "#refOutputCard").style.display, "none");
+  });
+
+  test("保存データのメンバーが0人なら、サンプルを表示する（SIEGE-006）", t => {
+    const state = { memberSeq: 0, patternSeq: 0, members: [], patterns: [], settings: { kezuriRallyMin: "4" } };
+    const dom = open(t, { storage: { siegeCalcState: JSON.stringify(state) } });
+    assert.deepEqual(memberRows(dom), SAMPLE_MEMBERS);
+    assert.equal(patternSelections(dom).length, 3);
+  });
+
+  test("追加した行は削り、ラベル空、行軍0、速度ペットなし、採用オンで、「全員同じ」がオンならその値に従う（SIEGE-002）", t => {
+    const dom = open(t);
+    $(dom, "#addMemberBtn").click();
+    const row = $$(dom, "#memberBody tr").pop();
     assert.deepEqual(
-      $$(dom, ".pattern-block").map(block => Array.from(block.querySelectorAll("input:checked")).map(box => box.parentElement.textContent.trim())),
-      EXAMPLE_1.patterns);
-    assert.equal($(dom, "#kezuriRallyMin").value, "5");
-    assert.equal($(dom, "#buffer").value, "30");
-    assert.equal($(dom, "#outputCard").style.display, "none");
-    assert.equal(calculate(dom).output, first);
+      [".role-select", ".label-input", ".march-input", ".pet-select"].map(s => row.querySelector(s).value),
+      ["削り", "", "0", "0"]);
+    assert.equal(row.querySelector(".use-pet-checkbox").checked, true);
 
-    fillSiege(dom, EXAMPLE_3);
-    const second = calculate(dom).output;
-    assert.notEqual(second, first);
-
-    clickTab(dom, 0);
-    assert.equal($(dom, "#output").textContent, first);
-    assert.equal($(dom, "#mainRallyMin").value, "3");
-    // 複製先の編集（パターンの削除と選択の変更）は、複製元へ及ばない。
-    assert.equal($$(dom, ".pattern-block").length, 3);
-    assert.equal(calculate(dom).output, first);
-    assert.deepEqual($$(dom, ".label-input").map(input => input.value), EXAMPLE_1.members.map(m => m[1]));
-
-    clickTab(dom, 1);
-    assert.equal($(dom, "#output").textContent, second);
-    assert.equal($(dom, "#mainRallyMin").value, "2");
+    setChecked($(dom, "#petSameAllCheckbox"), true);
+    setChecked($(dom, "#petSameValueCheckbox"), false);
+    $(dom, "#addMemberBtn").click();
+    const added = $$(dom, "#memberBody tr").pop().querySelector(".use-pet-checkbox");
+    assert.equal(added.checked, false);
+    assert.equal(added.disabled, true);
+    // 「削除」で行を削除する。
+    $$(dom, ".del-member-btn").pop().click();
+    assert.equal($$(dom, "#memberBody tr").length, SAMPLE_MEMBERS.length + 1);
   });
 
-  test("名前を変更でき、空にすると既定の名前を表示する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    setValue(dom, $(dom, "#tabNameInput"), "本隊");
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1", "本隊"]);
-    setValue(dom, $(dom, "#tabNameInput"), "");
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1", "計算2"]);
-    clickTab(dom, 0);
-    assert.equal($(dom, "#tabNameInput").value, "計算1");
+  test("追加したパターンは①〜⑳、21個目から(21)と名付け、その時点の増援を全員選ぶ（SIEGE-003）", t => {
+    const dom = open(t);
+    $(dom, "#addMemberBtn").click();
+    const row = $$(dom, "#memberBody tr").pop();
+    setValue(dom, row.querySelector(".label-input"), "増援2");
+    setValue(dom, $$(dom, "#memberBody .role-select").pop(), "増援", "change");
+    for (let i = 0; i < 18; i++) $(dom, "#addPatternBtn").click();
+    const selections = patternSelections(dom);
+    assert.deepEqual(selections.map(s => s[0]), [..."①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳", "(21)"]);
+    // 既存のパターンには、後から加えた増援を選ばない。
+    assert.deepEqual(selections[0].slice(1), [["A", "B", "C"], ["増援"]]);
+    assert.deepEqual(selections[3].slice(1), [[], ["増援", "増援2"]]);
   });
 
-  test("削除は確認を取り、取り消せば何も変えない。番号は再利用しない", t => {
-    let answer = false;
-    const asked = [];
-    const dom = openSiege({ confirm: message => { asked.push(message); return answer; } });
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    $(dom, "#addTabBtn").click();
-    clickTab(dom, 1);
-
-    $(dom, "#deleteTabBtn").click();
-    assert.equal(asked.length, 1);
-    assert.match(asked[0], /計算2/);
-    assert.equal(tabs(dom).length, 3);
-
-    answer = true;
-    $(dom, "#deleteTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1", "計算3"]);
-    // 右隣のタブを表示する。
-    assert.equal(selectedTab(dom).textContent, "計算3");
-    $(dom, "#deleteTabBtn").click();
-    assert.equal(selectedTab(dom).textContent, "計算1");
-    assert.equal($(dom, "#deleteTabBtn").disabled, true);
-
-    $(dom, "#addTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1", "計算4"]);
+  test("メンバーを削除すると、全パターンの削りと増援の選択からも外す（SIEGE-004）", t => {
+    const dom = open(t);
+    const ids = label => rowOf(dom, label).querySelector(".del-member-btn").dataset.id;
+    const removed = [ids("A"), ids("増援")];
+    rowOf(dom, "A").querySelector(".del-member-btn").click();
+    rowOf(dom, "増援").querySelector(".del-member-btn").click();
+    const state = readJson(dom, "siegeCalcState");
+    for (const pattern of state.patterns) {
+      for (const id of removed) {
+        assert.ok(!pattern.kezuriIds.includes(id) && !pattern.reinforceIds.includes(id), JSON.stringify(pattern));
+      }
+    }
+    assert.deepEqual(patternSelections(dom)[0].slice(1), [["B", "C"], []]);
   });
 
-  test("矢印キー、Home、Endでタブを切り替え、Focusを移す", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    $(dom, "#addTabBtn").click();
-    clickTab(dom, 0);
-    const press = key => dom.window.document.activeElement.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
+  test("削り、増援、パターンがなければ、その旨を表示する（SIEGE-005）", t => {
+    const dom = open(t);
+    for (const label of ["A", "B", "C", "D", "E", "F", "増援"]) rowOf(dom, label).querySelector(".del-member-btn").click();
+    const block = $(dom, ".pattern-block");
+    assert.deepEqual(Array.from(block.querySelectorAll(".kezuri-checks .empty")).map(e => e.textContent),
+      ["削り役割のメンバーがいません", "増援役割のメンバーがいません"]);
+    while ($$(dom, ".del-pattern-btn").length) $(dom, ".del-pattern-btn").click();
+    assert.equal($(dom, "#patternList .empty").textContent, "パターンがありません");
+  });
 
-    tabs(dom)[0].focus();
-    press("ArrowRight");
-    assert.equal(selectedTab(dom).textContent, "計算2");
-    assert.equal(dom.window.document.activeElement, selectedTab(dom));
-    press("End");
-    assert.equal(selectedTab(dom).textContent, "計算3");
-    press("ArrowRight");
-    assert.equal(selectedTab(dom).textContent, "計算1");
-    press("ArrowLeft");
-    assert.equal(selectedTab(dom).textContent, "計算3");
-    press("Home");
-    assert.equal(selectedTab(dom).textContent, "計算1");
-    // 選ばれていないタブはTabキーの移動先にしない。
-    assert.deepEqual(tabs(dom).map(tab => tab.tabIndex), [0, -1, -1]);
+  test("速度ペットLvは持っていない、Lv8…Lv1の順に選び、ペットありの行軍秒数を四捨五入して表示する（SIEGE-007）", t => {
+    const dom = open(t);
+    const row = rowOf(dom, "A");
+    const select = row.querySelector(".pet-select");
+    assert.deepEqual(Array.from(select.options).map(o => [o.value, o.textContent]), [
+      ["0", "持っていない"],
+      ...[8, 7, 6, 5, 4, 3, 2, 1].map(lv => [String(lv), `Lv${lv}（+${DEFAULT_PET_BONUS[lv]}%）`]),
+    ]);
+    const display = row.querySelector(".march-pet-output");
+    assert.equal(display.readOnly, true);
+    setValue(dom, row.querySelector(".march-input"), "100");
+    assert.equal(display.value, "（ペットなし）");
+    setValue(dom, select, "1", "change");
+    assert.equal(display.value, "87"); // 100 ÷ 1.15 = 86.95…
+    setValue(dom, select, "8", "change");
+    assert.equal(display.value, "77"); // 100 ÷ 1.30 = 76.92…
+  });
+
+  test("「全員同じ」をオンにすると共通の採用値へそろえ、行ごとの採用を変更できなくする（SIEGE-008）", t => {
+    const dom = open(t);
+    const boxes = () => $$(dom, ".use-pet-checkbox");
+    setChecked(boxes()[2], false);
+    assert.equal($(dom, "#petSameValueLabel").style.display, "none");
+    setChecked($(dom, "#petSameAllCheckbox"), true);
+    assert.notEqual($(dom, "#petSameValueLabel").style.display, "none");
+    assert.ok(boxes().every(box => box.disabled && box.checked));
+    setChecked($(dom, "#petSameValueCheckbox"), false);
+    assert.ok(boxes().every(box => box.disabled && !box.checked));
+    assert.ok(readJson(dom, "siegeCalcState").members.every(m => m.usePet === false));
+    setChecked($(dom, "#petSameAllCheckbox"), false);
+    assert.equal($(dom, "#petSameValueLabel").style.display, "none");
+    assert.ok(boxes().every(box => !box.disabled));
+  });
+
+  test("「全員同じ」でペットなしにすると、速度ペットがあってもペットなしの行軍秒数で計算する（SIEGE-008、SIEGE-019）", t => {
+    const dom = open(t);
+    fillSiege(dom, { ...EXAMPLE1, petSame: false });
+    const { output, reference } = calculate(dom);
+    assert.match(output, /→ ①B（5分集結）※行軍100秒/);
+    assert.deepEqual(checkProperties({ ...EXAMPLE1, petSame: false }, output, reference), []);
   });
 });
 
-test.describe("保存（SIEGE-040〜SIEGE-044）", () => {
-  // 別のブラウザのタブで保存されたときと同じ通知を送る。
-  function receiveOwnUpdate(target, source) {
-    const value = source.window.localStorage.getItem("siegeCalcTabs");
-    target.window.localStorage.setItem("siegeCalcTabs", value);
-    target.window.dispatchEvent(new target.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: value }));
+test.describe("速度ペットのボーナス（SIEGE-009、SIEGE-046）", () => {
+  const inputs = dom => $$(dom, "#petBonusEditor input[data-lv]");
+  const badge = dom => $(dom, "#petBonusEditor .pb-changed").textContent;
+
+  test("Lvごとのボーナスを編集して保存し、プルダウンと行軍秒数と計算結果へ反映する", t => {
+    const dom = open(t);
+    assert.match($(dom, "#petBonusEditor summary").textContent, /速度ペットのボーナス%を編集する（このブラウザだけ）/);
+    assert.deepEqual(inputs(dom).map(input => [input.dataset.lv, input.value]),
+      [1, 2, 3, 4, 5, 6, 7, 8].map(lv => [String(lv), String(DEFAULT_PET_BONUS[lv])]));
+    assert.equal(badge(dom), "");
+
+    fillSiege(dom, EXAMPLE1);
+    calculate(dom);
+    setValue(dom, inputs(dom)[7], "40", "change");
+    assert.deepEqual(readJson(dom, "ksMarchPetBonus"), [0, 15, 17, 19, 21, 23, 25, 27, 40]);
+    assert.equal(badge(dom), "※初期値から変更中");
+    const row = rowOf(dom, "B");
+    assert.equal(row.querySelector(".pet-select option[value='8']").textContent, "Lv8（+40%）");
+    assert.equal(row.querySelector(".march-pet-output").value, "71"); // 100 ÷ 1.4 = 71.42…
+    // 計算結果を表示しているため、計算し直す。①のTは max(330, 300+71, 239, 218) = 371。
+    assert.match($(dom, "#output").textContent, /^①A\+B→メイン→増援\n0分00秒 → ①B（5分集結）※行軍71秒（6分11秒着、7分22秒帰還）\n/);
+
+    // 0.1刻みの値も使う。
+    setValue(dom, inputs(dom)[0], "12.5", "change");
+    assert.deepEqual(readJson(dom, "ksMarchPetBonus"), [0, 12.5, 17, 19, 21, 23, 25, 27, 40]);
+  });
+
+  test("0以上の数でない入力は無視し、直前の値を保つ", t => {
+    const dom = open(t);
+    setValue(dom, inputs(dom)[7], "40", "change");
+    for (const wrong of ["-5", "", "abc"]) {
+      setValue(dom, inputs(dom)[7], wrong, "change");
+      assert.deepEqual(readJson(dom, "ksMarchPetBonus"), [0, 15, 17, 19, 21, 23, 25, 27, 40], wrong);
+      assert.equal(rowOf(dom, "A").querySelector(".pet-select option[value='8']").textContent, "Lv8（+40%）");
+    }
+  });
+
+  test("計算結果を表示していなければ、編集しても結果カードを出さない", t => {
+    const dom = open(t);
+    setValue(dom, inputs(dom)[0], "20", "change");
+    assert.equal($(dom, "#outputCard").style.display, "none");
+  });
+
+  test("「初期値に戻す」で既定値へ戻し、保存のキーを削除する", t => {
+    const dom = open(t);
+    fillSiege(dom, EXAMPLE1);
+    setValue(dom, inputs(dom)[7], "40", "change");
+    calculate(dom);
+    $(dom, "#petBonusEditor .pb-reset").click();
+    assert.equal(dom.window.localStorage.getItem("ksMarchPetBonus"), null);
+    assert.equal(badge(dom), "");
+    assert.deepEqual(inputs(dom).map(input => input.value), DEFAULT_PET_BONUS.slice(1).map(String));
+    assert.equal(rowOf(dom, "B").querySelector(".march-pet-output").value, "77");
+    assert.equal($(dom, "#output").textContent, EXAMPLE1_OUTPUT);
+  });
+
+  test("保存したボーナスを読み、9個の0以上の数でなければ既定値を使う", t => {
+    const custom = [0, 10, 20, 30, 40, 50, 60, 70, 80.5];
+    const valid = open(t, { storage: { ksMarchPetBonus: JSON.stringify(custom) } });
+    assert.deepEqual(inputs(valid).map(input => Number(input.value)), custom.slice(1));
+    assert.equal(badge(valid), "※初期値から変更中");
+    assert.equal($(valid, ".pet-select option[value='8']").textContent, "Lv8（+80.5%）");
+
+    for (const broken of [
+      JSON.stringify(custom.slice(0, 8)),
+      JSON.stringify([...custom, 90]),
+      JSON.stringify([0, 10, 20, -30, 40, 50, 60, 70, 80]),
+      JSON.stringify([0, 10, 20, "30", 40, 50, 60, 70, 80]),
+      JSON.stringify({ 0: 0 }),
+      "{壊れたJSON",
+    ]) {
+      const dom = open(t, { storage: { ksMarchPetBonus: broken } });
+      assert.deepEqual(inputs(dom).map(input => Number(input.value)), DEFAULT_PET_BONUS.slice(1), broken);
+      assert.equal(badge(dom), "", broken);
+    }
+  });
+});
+
+test.describe("保存と周期ウェーブタイマーへ渡す結果（SIEGE-031〜SIEGE-046）", () => {
+  test("入力を変更のたびに保存し、次回表示で復元する。計算結果は保存せず、結果カードを出さない（SIEGE-040、SIEGE-041）", t => {
+    const dom = open(t);
+    fillSiege(dom, { ...EXAMPLE1, petSame: true });
+    const { output } = calculate(dom);
+    const state = readJson(dom, "siegeCalcState");
+    assert.deepEqual(Object.keys(state).sort(),
+      ["memberSeq", "members", "patternSeq", "patterns", "petSameForAll", "petSameValue", "settings"]);
+    assert.deepEqual(Object.keys(state.members[0]).sort(), ["id", "label", "march", "petLevel", "role", "usePet"]);
+    assert.deepEqual(Object.keys(state.patterns[0]).sort(), ["id", "kezuriIds", "name", "reinforceIds"]);
+    assert.deepEqual(state.settings, { kezuriRallyMin: "5", mainRallyMin: "3", phaseGap: "1", buffer: "30" });
+    assert.deepEqual([state.petSameForAll, state.petSameValue], [true, true]);
+    assert.ok(!JSON.stringify(state).includes("周期"));
+
+    const reopened = open(t, { storage: storageOf(dom) });
+    assert.equal($(reopened, "#outputCard").style.display, "none");
+    assert.deepEqual(memberRows(reopened), EXAMPLE1.members.map(m => [m.role, m.label]));
+    assert.deepEqual(patternSelections(reopened), [["①", ["A", "B"], ["R"]], ["②", ["C"], []]]);
+    assert.equal($(reopened, "#petSameAllCheckbox").checked, true);
+    assert.equal(rowOf(reopened, "B").querySelector(".pet-select").value, "8");
+    assert.equal(calculate(reopened).output, output);
+  });
+
+  test("パターン名と共通設定の変更も保存する（SIEGE-040）", t => {
+    const dom = open(t);
+    setValue(dom, $(dom, ".pattern-name-input"), "⑤");
+    setValue(dom, $(dom, "#buffer"), "45");
+    const state = readJson(dom, "siegeCalcState");
+    assert.equal(state.patterns[0].name, "⑤");
+    assert.equal(state.settings.buffer, "45");
+  });
+
+  test("reinforceIds、petLevel、usePetがない保存データは、増援を全員選び、速度ペットなし、採用オンとして読む（SIEGE-041）", t => {
+    const state = {
+      memberSeq: 4,
+      patternSeq: 2,
+      members: [
+        { id: "m1", role: "メイン", label: "M", march: 10 },
+        { id: "m2", role: "増援", label: "R1", march: 20 },
+        { id: "m3", role: "増援", label: "R2", march: 30 },
+        { id: "m4", role: "削り", label: "A", march: 40 },
+      ],
+      patterns: [{ id: "p1", name: "①", kezuriIds: ["m4"] }, { id: "p2", name: "②", kezuriIds: [], reinforceIds: ["m3"] }],
+      settings: { kezuriRallyMin: "4", mainRallyMin: "2", phaseGap: "0", buffer: "5" },
+    };
+    const dom = open(t, { storage: { siegeCalcState: JSON.stringify(state) } });
+    assert.deepEqual(patternSelections(dom), [["①", ["A"], ["R1", "R2"]], ["②", [], ["R2"]]]);
+    assert.ok($$(dom, ".pet-select").every(select => select.value === "0"));
+    assert.ok($$(dom, ".use-pet-checkbox").every(box => box.checked && !box.disabled));
+    assert.equal($(dom, "#kezuriRallyMin").value, "4");
+    const saved = readJson(dom, "siegeCalcState");
+    assert.deepEqual(saved.patterns[0].reinforceIds, ["m2", "m3"]);
+    assert.ok(saved.members.every(m => m.petLevel === 0 && m.usePet === true));
+    // 追加したメンバーは保存した連番の続きのidを使う。
+    $(dom, "#addMemberBtn").click();
+    assert.equal(readJson(dom, "siegeCalcState").members.pop().id, "m5");
+  });
+
+  test("計算のたびに、周期、1周目の帰還の最大値、1周目の本文を保存時刻とともに渡す（SIEGE-035、SIEGE-045）", t => {
+    const dom = open(t);
+    fillSiege(dom, EXAMPLE1);
+    const before = Date.now();
+    calculate(dom);
+    const after = Date.now();
+    const saved = readJson(dom, "siegeTimelineForWaveTimer");
+    assert.deepEqual(Object.keys(saved).sort(), ["maxSec", "periodSec", "rawText", "savedAt"]);
+    assert.ok(saved.savedAt >= before && saved.savedAt <= after, String(saved.savedAt));
+    // 1周目の帰還の最大値は②のMの12分48秒（768秒）。
+    assert.deepEqual({ ...saved, savedAt: 0 }, { savedAt: 0, periodSec: 660, maxSec: 768, rawText: EXAMPLE1_OUTPUT });
+
+    setValue(dom, $(dom, "#buffer"), "0");
+    const { output } = calculate(dom);
+    const next = readJson(dom, "siegeTimelineForWaveTimer");
+    assert.ok(next.savedAt >= saved.savedAt);
+    assert.equal(next.rawText, output);
+    assert.notEqual(next.rawText, EXAMPLE1_OUTPUT);
+  });
+
+  test("計算するまでは、周期ウェーブタイマーへ渡す結果を保存しない（SIEGE-035）", t => {
+    const dom = open(t);
+    fillSiege(dom, EXAMPLE1);
+    assert.equal(dom.window.localStorage.getItem("siegeTimelineForWaveTimer"), null);
+  });
+
+  for (const [name, failure] of Object.entries(STORAGE_FAILURES)) {
+    test(`localStorageを使えなくても、入力、計算、ペットの編集ができる（COM-041、${name}）`, t => {
+      const dom = open(t, { beforeParse: failure });
+      // 故障を注入できたことを先に確かめ、検査が空回りしないようにする。
+      if (name === "getterThrows") assert.throws(() => dom.window.localStorage);
+      assert.equal($$(dom, "#memberBody tr").length, 8);
+      fillSiege(dom, EXAMPLE1);
+      assert.equal(calculate(dom).output, EXAMPLE1_OUTPUT);
+      const lv8 = $(dom, '.pb-edit input[data-lv="8"]');
+      setValue(dom, lv8, "40", "change");
+      assert.ok($(dom, ".pet-select").innerHTML.includes("Lv8（+40%）"));
+      if (name === "setItemThrows") assert.deepEqual(storageOf(dom), {});
+    });
   }
 
-  test("別のブラウザのタブで保存されたら読み直し、そのタブで作ったタブを上書きで消さない（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    const b = openSiege({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-
-    // Aでタブを加えて計算する。Bは通知を受けて読み直す。
-    $(a, "#addTabBtn").click();
-    fillSiege(a, EXAMPLE_3);
-    const added = calculate(a).output;
-    receiveOwnUpdate(b, a);
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算2"]);
-    // Bは表示中のタブ（計算1）を表示し続ける。
-    assert.equal(selectedTab(b).textContent, "計算1");
-
-    // Bで入力を変えても、Aで加えたタブと計算結果は残る。
-    setValue(b, $(b, "#buffer"), "45");
-    const saved = savedTabs(b);
-    assert.deepEqual(saved.tabs.map(x => x.name), ["計算1", "計算2"]);
-    assert.equal(saved.tabs[1].result.output, added);
-    assert.equal(saved.tabs[0].settings.buffer, "45");
-  });
-
-  test("別のブラウザのタブで表示中のタブが削除されたら、保存データの最後に表示していたタブを表示する（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    $(a, "#addTabBtn").click();
-    $(a, "#addTabBtn").click();
-    clickTab(a, 1);
-    const b = openSiege({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    assert.equal(selectedTab(b).textContent, "計算2");
-    // Aで計算2を削除すると、Aは右隣の計算3を表示して保存する。Bは先頭ではなく計算3を表示する。
-    $(a, "#deleteTabBtn").click();
-    receiveOwnUpdate(b, a);
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算3"]);
-    assert.equal(selectedTab(b).textContent, "計算3");
-  });
-
-  test("別のブラウザのタブで表示中のタブが変わったら、その内容へ置き換える（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    const b = openSiege({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    setValue(a, $(a, "#buffer"), "50");
-    receiveOwnUpdate(b, a);
-    assert.equal($(b, "#buffer").value, "50");
-    setValue(b, $(b, "#phaseGap"), "2");
-    const saved = savedTabs(b).tabs[0].settings;
-    assert.deepEqual([saved.buffer, saved.phaseGap], ["50", "2"]);
-  });
-
-  test("読めない保存データの通知は無視する（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    $(a, "#addTabBtn").click();
-    for (const broken of [null, "{壊れたJSON", '{"version":1,"tabs":[]}']) {
-      if (broken === null) a.window.localStorage.removeItem("siegeCalcTabs");
-      else a.window.localStorage.setItem("siegeCalcTabs", broken);
-      a.window.dispatchEvent(new a.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: broken }));
-      assert.deepEqual(tabs(a).map(tab => tab.textContent), ["計算1", "計算2"], String(broken));
-      assert.equal(selectedTab(a).textContent, "計算2", String(broken));
-    }
-  });
-
-  test("戻る操作でページが復元されたら、離れていた間の保存を読み直す（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    const b = openSiege({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(a, "#addTabBtn").click();
-    // 通知を受けないまま、保存データだけが変わった状態で復元される。
-    b.window.localStorage.setItem("siegeCalcTabs", a.window.localStorage.getItem("siegeCalcTabs"));
-    const shown = new b.window.Event("pageshow");
-    Object.defineProperty(shown, "persisted", { value: true });
-    b.window.dispatchEvent(shown);
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["計算1", "計算2"]);
-  });
-
-  test("読み直しでは保存し直さず、通知が往復しない（SIEGE-044）", t => {
-    const a = openSiege();
-    t.after(() => a.window.close());
-    const b = openSiege({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(a, "#addTabBtn").click();
-    let writes = 0;
-    const original = b.window.Storage.prototype.setItem;
-    b.window.Storage.prototype.setItem = function (...args) { writes += 1; return original.apply(this, args); };
-    const value = a.window.localStorage.getItem("siegeCalcTabs");
-    original.call(b.window.localStorage, "siegeCalcTabs", value);
-    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: value }));
-    assert.equal(writes, 0);
-    assert.equal(b.window.localStorage.getItem("siegeCalcTabs"), value);
-  });
-
-  test("すべてのタブ、最後に表示したタブ、計算結果を保存して復元する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    fillSiege(dom, EXAMPLE_1);
-    const first = calculate(dom);
-    $(dom, "#addTabBtn").click();
-    fillSiege(dom, EXAMPLE_3);
-    setValue(dom, $(dom, "#tabNameInput"), "別動隊");
-    clickTab(dom, 0);
+  test("「Discord用にコピー」で1周目の出力をコピーし、1.5秒間「コピーしました」と表示する（SIEGE-031）", async t => {
+    const clock = createClock();
+    const copied = [];
+    const dom = open(t, { clock, clipboard: { writeText: text => { copied.push(text); return Promise.resolve(); } } });
+    fillSiege(dom, EXAMPLE1);
     calculate(dom);
-
-    const saved = savedTabs(dom);
-    assert.equal(saved.version, 1);
-    assert.equal(saved.tabs.length, 2);
-    assert.equal(saved.activeTabId, saved.tabs[0].id);
-    assert.equal(saved.tabs[0].result.revision, 2);
-    assert.equal(saved.tabs[0].result.ok, true);
-    assert.equal(saved.tabs[0].result.output, first.output);
-    assert.equal(saved.tabs[0].result.reference, first.reference);
-    assert.equal(saved.tabs[1].result, null);
-
-    const reopened = openSiege({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.deepEqual(tabs(reopened).map(tab => tab.textContent), ["計算1", "別動隊"]);
-    // タブのidは作るたびに変わる値のため、開き直しても保存したidを保つ（SIEGE-041）。
-    assert.deepEqual(savedTabs(reopened).tabs.map(x => x.id), saved.tabs.map(x => x.id));
-    saved.tabs.forEach(x => assert.match(x.id, /^t\d+-[0-9a-z]+$/));
-    assert.notEqual(saved.tabs[0].id, saved.tabs[1].id);
-    assert.equal(selectedTab(reopened).textContent, "計算1");
-    assert.equal($(reopened, "#outputCard").style.display, "block");
-    assert.equal($(reopened, "#output").textContent, first.output);
-    assert.equal($(reopened, "#refOutput").textContent, first.reference);
-    clickTab(reopened, 1);
-    assert.deepEqual($$(reopened, ".label-input").map(input => input.value), EXAMPLE_3.members.map(m => m[1]));
-    assert.equal($(reopened, "#buffer").value, "40");
-    assert.equal($(reopened, "#outputCard").style.display, "none");
-  });
-
-  test("メンバーを0人にしたタブも、そのまま復元する", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    let button;
-    while ((button = $(dom, ".del-member-btn"))) button.click();
-    const reopened = openSiege({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal($$(reopened, "#memberBody tr").length, 0);
-  });
-
-  test("旧キーsiegeCalcStateの入力を最初のタブへ移し、旧キーは変えない", t => {
-    const legacy = JSON.stringify({
-      memberSeq: 3,
-      patternSeq: 1,
-      members: [
-        { id: "m1", role: "メイン", label: "主", march: 12 },
-        { id: "m2", role: "削り", label: "甲", march: 40 },
-        { id: "m3", role: "削り", label: "乙", march: 25 },
-      ],
-      patterns: [{ id: "p1", name: "①", kezuriIds: ["m2", "m3"] }],
-      settings: { kezuriRallyMin: "4", mainRallyMin: "2", phaseGap: "2", buffer: "20" },
-    });
-    const dom = openSiege({ storage: { siegeCalcState: legacy } });
-    t.after(() => dom.window.close());
-
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["計算1"]);
-    assert.deepEqual($$(dom, ".label-input").map(input => input.value), ["主", "甲", "乙"]);
-    assert.deepEqual($$(dom, ".march-input").map(input => input.value), ["12", "40", "25"]);
-    assert.deepEqual($$(dom, ".role-select").map(select => select.value), ["メイン", "削り", "削り"]);
-    assert.deepEqual($$(dom, ".pattern-block input[type=checkbox]").map(box => box.checked), [true, true]);
-    assert.equal($(dom, "#kezuriRallyMin").value, "4");
-    assert.equal($(dom, "#mainRallyMin").value, "2");
-    assert.equal($(dom, "#phaseGap").value, "2");
-    assert.equal($(dom, "#buffer").value, "20");
-    assert.equal(dom.window.localStorage.getItem("siegeCalcState"), legacy);
-
-    // 移した後の追加でidが重ならない。
-    $(dom, "#addMemberBtn").click();
-    const ids = $$(dom, ".label-input").map(input => input.dataset.id);
-    assert.equal(new Set(ids).size, ids.length);
-    assert.equal(savedTabs(dom).tabs[0].members.length, 4);
-
-    // 移した後に開き直しても、新しいキーを使い、移した後の編集を旧キーで上書きしない。
-    const reopened = openSiege({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal(reopened.window.localStorage.getItem("siegeCalcState"), legacy);
-    assert.equal($$(reopened, "#memberBody tr").length, 4);
-    assert.equal($(reopened, "#kezuriRallyMin").value, "4");
-  });
-
-  test("旧キーにメンバーがいなくても、共通設定とパターンをそのまま移す", t => {
-    const legacy = JSON.stringify({
-      memberSeq: 2, patternSeq: 1, members: [],
-      patterns: [{ id: "p1", name: "①", kezuriIds: [] }],
-      settings: { kezuriRallyMin: "4", mainRallyMin: "2", phaseGap: "2", buffer: "20" },
-    });
-    const dom = openSiege({ storage: { siegeCalcState: legacy } });
-    t.after(() => dom.window.close());
-    assert.equal($$(dom, "#memberBody tr").length, 0);
-    assert.equal($$(dom, ".pattern-block").length, 1);
-    assert.equal($(dom, "#kezuriRallyMin").value, "4");
-    assert.equal($(dom, "#buffer").value, "20");
-    assert.equal(dom.window.localStorage.getItem("siegeCalcState"), legacy);
-  });
-
-  test("新しいキーが空か壊れていれば、旧キーから移し直す（SIEGE-042）", t => {
-    const legacy = JSON.stringify({
-      memberSeq: 1, patternSeq: 0,
-      members: [{ id: "m1", role: "メイン", label: "主", march: 12 }],
-      patterns: [], settings: { kezuriRallyMin: "4", mainRallyMin: "2", phaseGap: "2", buffer: "20" },
-    });
-    for (const broken of ["{壊れたJSON", '{"version":1,"tabs":[]}', ""]) {
-      const dom = openSiege({ storage: { siegeCalcState: legacy, siegeCalcTabs: broken } });
-      t.after(() => dom.window.close());
-      assert.deepEqual($$(dom, ".label-input").map(input => input.value), ["主"], broken);
-      assert.equal($(dom, "#kezuriRallyMin").value, "4", broken);
-      assert.equal(dom.window.localStorage.getItem("siegeCalcState"), legacy, broken);
-      assert.equal(savedTabs(dom).tabs[0].members.length, 1, broken);
-    }
-  });
-
-  test("新しいキーが空か壊れていて旧キーもなければ、サンプルのタブを作る（SIEGE-006、SIEGE-042）", t => {
-    for (const broken of ["{壊れたJSON", '{"version":1,"tabs":[]}', ""]) {
-      const dom = openSiege({ storage: { siegeCalcTabs: broken } });
-      t.after(() => dom.window.close());
-      assert.equal($$(dom, "#memberBody tr").length, 8, broken);
-      assert.equal($$(dom, ".pattern-block").length, 3, broken);
-    }
-  });
-
-  test("旧キーも新しいキーもなければサンプルのタブを作る", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    assert.equal($$(dom, "#memberBody tr").length, 8);
-    assert.equal(dom.window.localStorage.getItem("siegeCalcState"), null);
-  });
-
-  test("計算した後に入力を変えると、計算し直すまで注意を表示する（SIEGE-043）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const notice = () => $(dom, "#resultNotice").textContent;
-    fillSiege(dom, EXAMPLE_1);
-    const first = calculate(dom);
-    assert.equal(notice(), "");
-
-    setValue(dom, $(dom, ".march-input"), "11");
-    assert.equal(notice(), "⚠ 入力が変更されています。計算し直してください");
-    // 結果は消さない。
-    assert.equal($(dom, "#output").textContent, first.output);
-    // 再表示でも注意を出す。
-    const reopened = openSiege({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal($(reopened, "#resultNotice").textContent, "⚠ 入力が変更されています。計算し直してください");
-
-    // 元の値へ戻すか、計算し直すと注意を消す。
-    setValue(dom, $(dom, ".march-input"), "10");
-    assert.equal(notice(), "");
-    setValue(dom, $(dom, "#buffer"), "45");
-    assert.notEqual(notice(), "");
-    calculate(dom);
-    assert.equal(notice(), "");
-    // パターンの選択の変更も入力の変更として扱う。
-    $(dom, ".pattern-block input[type=checkbox]:checked").click();
-    assert.notEqual(notice(), "");
-
-    // 注意はタブごとに判定する。計算済みの2つのタブの片方だけを変える。
-    $(dom, ".pattern-block input[type=checkbox]:not(:checked)").click();
-    calculate(dom);
-    $(dom, "#addTabBtn").click();
-    calculate(dom);
-    setValue(dom, $(dom, "#buffer"), "50");
-    assert.notEqual(notice(), "");
-    clickTab(dom, 0);
-    assert.equal(notice(), "");
-    clickTab(dom, 1);
-    assert.notEqual(notice(), "");
-  });
-
-  test("計算できなかった後も、残した参考結果の入力と違えば注意を表示し続ける（SIEGE-043、SIEGE-034）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const notice = () => $(dom, "#resultNotice").textContent;
-    const previous = run(EXAMPLE_1, dom);
-    $(dom, ".role-select").value = "削り";
-    $(dom, ".role-select").dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    assert.notEqual(notice(), "");
-
-    const { output, reference } = calculate(dom);
-    assert.equal(output, "メイン役割のメンバーがいません");
-    assert.equal(reference, previous.reference);
-    assert.equal(notice(), "⚠ 参考：2周分の計算結果は、変更前の入力で計算したものです");
-    // 開き直しても、引き継いだ入力と比べて同じ注意を出す。
-    const reopened = openSiege({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal($(reopened, "#resultNotice").textContent, "⚠ 参考：2周分の計算結果は、変更前の入力で計算したものです");
-    assert.equal($(reopened, "#refOutputCard").style.display, "block");
-    // 計算できなかった計算を重ねても、参考結果を残し、その入力と比べ続ける。
-    assert.equal(calculate(dom).reference, previous.reference);
-    assert.equal(savedTabs(dom).tabs[0].result.reference, previous.reference);
-    assert.equal(notice(), "⚠ 参考：2周分の計算結果は、変更前の入力で計算したものです");
-    // 参考結果の入力へ戻すと注意を消す。
-    $(dom, ".role-select").value = "メイン";
-    $(dom, ".role-select").dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    assert.equal(notice(), "");
-  });
-
-  test("残した参考結果がなければ、計算できなかった後に入力を変えても注意を出さない（SIEGE-043）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    const notice = () => $(dom, "#resultNotice").textContent;
-    run({ ...EXAMPLE_1, patterns: [] }, dom);
-    assert.equal(notice(), "");
-    setValue(dom, $(dom, "#buffer"), "45");
-    assert.equal(notice(), "");
-
-    // パターン0件に続けてメイン0人で計算しても、比べる参考結果がないため注意を出さない。
-    $(dom, "#addPatternBtn").click();
-    $(dom, ".role-select").value = "削り";
-    $(dom, ".role-select").dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    assert.equal(calculate(dom).output, "メイン役割のメンバーがいません");
-    assert.equal(notice(), "");
-    assert.equal(savedTabs(dom).tabs[0].result.inputKey, null);
-  });
-
-  test("localStorageを使えなくても計算できる（COM-041）", t => {
-    const dom = openSiege();
-    t.after(() => dom.window.close());
-    dom.window.Storage.prototype.setItem = () => { throw new Error("使えない"); };
-    const { output, reference } = run(EXAMPLE_1, dom);
-    assert.deepEqual(checkProperties(EXAMPLE_1, output, reference), []);
+    $(dom, "#copyBtn").click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(copied, [EXAMPLE1_OUTPUT]);
+    assert.equal($(dom, "#copyBtn").textContent, "コピーしました");
+    clock.advance(1499);
+    assert.equal($(dom, "#copyBtn").textContent, "コピーしました");
+    clock.advance(1);
+    assert.equal($(dom, "#copyBtn").textContent, "Discord用にコピー");
   });
 });

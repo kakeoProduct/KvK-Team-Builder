@@ -53,6 +53,12 @@
   .ks-sidebar .ks-link .ks-icon { flex: 0 0 auto; width: 18px; text-align: center; margin-top: 1px; }
   .ks-sidebar .ks-link .ks-label { white-space: normal; overflow-wrap: break-word; }
   .ks-sidebar .ks-link.ks-active { background: #3a4a63; color: #fff; font-weight: bold; }
+  .ks-sidebar .ks-group {
+    color: #6b7993; font-size: 10px; font-weight: bold; letter-spacing: 0.05em;
+    text-transform: uppercase; padding: 10px 10px 4px; white-space: nowrap;
+  }
+  .ks-sidebar .ks-group:first-of-type { padding-top: 0; }
+  body.ks-collapsed .ks-sidebar .ks-group { display: none; }
 
   .ks-open-btn {
     display: none; position: fixed; top: 14px; left: 14px; z-index: 100001;
@@ -91,6 +97,7 @@
       padding: 6px 10px; font-size: 12px;
     }
     .ks-sidebar .ks-label { display: inline !important; }
+    .ks-sidebar .ks-group { display: none; }
     body { margin-left: 0 !important; padding-top: 56px !important; }
     body.ks-collapsed .ks-sidebar { transform: translateY(-100%); width: 100% !important; }
     body.ks-collapsed { margin-left: 0 !important; padding-top: 0 !important; }
@@ -111,7 +118,7 @@
     <button type="button" class="ks-toggle-btn" id="ksToggleBtn" onclick="ksToggleSidebar()" aria-label="メニュー開閉">←</button>
   </div>
   <nav>
-    <a href="index.html" class="ks-link" title="メニュー"><span class="ks-icon">🏠</span><span class="ks-label">メニュー</span></a><a href="攻城タイムライン計算.html" class="ks-link" title="集結タイムライン計算"><span class="ks-icon">🐉</span><span class="ks-label">集結タイムライン計算</span></a><a href="王城到着同期カウントアップ.html" class="ks-link" title="KvK同着スタート カウントアップ表"><span class="ks-icon">⏱️</span><span class="ks-label">KvK同着スタート カウントアップ表</span></a><a href="KvK同着スタート カウントダウン表.html" class="ks-link" title="KvK同着スタート カウントダウン表"><span class="ks-icon">⏲️</span><span class="ks-label">KvK同着スタート カウントダウン表</span></a><a href="KvK占領判定.html" class="ks-link" title="KvK占領戦 勝利判定ツール"><span class="ks-icon">🏳️</span><span class="ks-label">KvK占領戦 勝利判定ツール</span></a><a href="周期ウェーブタイマー.html" class="ks-link" title="周期ウェーブタイマー"><span class="ks-icon">🌊</span><span class="ks-label">周期ウェーブタイマー</span></a><a href="音声アナウンス付きストップウォッチ.html" class="ks-link ks-active" title="音声ストップウォッチ（工事中）"><span class="ks-icon">🔊</span><span class="ks-label">音声ストップウォッチ（工事中）</span></a>
+    <a href="index.html" class="ks-link" title="メニュー"><span class="ks-icon">🏠</span><span class="ks-label">メニュー</span></a><div class="ks-group">攻城</div><a href="攻城タイムライン計算.html" class="ks-link" title="集結タイムライン計算"><span class="ks-icon">🐉</span><span class="ks-label">集結タイムライン計算</span></a><a href="周期ウェーブタイマー.html" class="ks-link" title="周期ウェーブタイマー"><span class="ks-icon">🌊</span><span class="ks-label">周期ウェーブタイマー</span></a><div class="ks-group">KvK</div><a href="KvK同着スタート カウントダウン表.html" class="ks-link" title="KvK同着スタート カウントダウン表"><span class="ks-icon">⏲️</span><span class="ks-label">KvK同着スタート カウントダウン表</span></a><a href="KvK占領判定.html" class="ks-link" title="KvK占領戦 勝利判定ツール"><span class="ks-icon">🏳️</span><span class="ks-label">KvK占領戦 勝利判定ツール</span></a>
   </nav>
 </div>
 <button type="button" class="ks-open-btn" onclick="ksToggleSidebar()" aria-label="メニューを開く">☰</button>

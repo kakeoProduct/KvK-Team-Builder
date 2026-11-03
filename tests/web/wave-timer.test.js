@@ -1,857 +1,696 @@
 "use strict";
 // 周期ウェーブタイマー（web/周期ウェーブタイマー.html）を実物のまま動かす検査。
 // 要件IDはdocs/requirements/web-tools/wave-timer.mdを参照する。
+// 予定の追加はsetTimeoutで行われるため、時計（createClock）を進めたときに追加される。
+// スタート直後の1個目も、時計を0ミリ秒進めたときに追加される（ブラウザではsetTimeoutの0ミリ秒後）。
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  createClock, openSiege, openWave, storageOf, setValue, $, $$, tabs, selectedTab, clickTab,
-  fillSiege, calculate,
+  createClock, openSiege, openWave, storageOf, readJson, setValue, $, $$, fillSiege, calculate,
+  STORAGE_FAILURES,
 } = require("./helpers");
 
-const SIEGE_CASE = {
-  settings: { kz: 5, mr: 3, gap: 1, buf: 30 },
-  members: [
-    ["メイン", "M", 10], ["増援", "R", 10],
-    ["削り", "A", 30], ["削り", "B", 20], ["削り", "C", 10],
-    ["削り", "D", 5], ["削り", "E", 15], ["削り", "F", 25],
-  ],
-  patterns: [["A", "B", "C"], ["D"], ["E", "F"]],
-};
+const SIEGE_KEY = "siegeTimelineForWaveTimer";
 
-// 集結タイムライン計算を実物で動かし、計算1を計算済み、計算2を未計算にした保存データを作る。
-function siegeStorage(t) {
-  const siege = openSiege();
-  t.after(() => siege.window.close());
-  fillSiege(siege, SIEGE_CASE);
-  const { output } = calculate(siege);
-  $(siege, "#addTabBtn").click();
-  return { siege, output, storage: storageOf(siege) };
+function open(t, options) {
+  const dom = openWave(options);
+  t.after(() => dom.window.close());
+  return dom;
 }
 
-function cardNumbers(dom) {
-  return $$(dom, "#itemStack .item-num").map(el => el.textContent);
+// 表示中のタブで計測を始め、1個目の予定を追加する。
+function start(dom, clock) {
+  $(dom, "#startBtn").click();
+  clock.advance(0);
 }
+
+// 予定のカードごとに、番号、経過時間、進行中のパターン、上の「⏱」、下の「⚠」とボタンを返す。
+function stack(dom) {
+  const entries = [];
+  let upcoming = [];
+  for (const el of $(dom, "#itemStack").children) {
+    if (el.classList.contains("upcoming-launch")) {
+      upcoming = Array.from(el.querySelectorAll(".upcoming-item")).map(e => e.textContent);
+    } else if (el.classList.contains("item-card")) {
+      const timeline = el.querySelector(".item-timeline");
+      entries.push({
+        label: el.querySelector(".item-label").textContent,
+        num: el.querySelector(".item-num").textContent,
+        timeline: timeline
+          ? Array.from(timeline.children).map(e => e.textContent)
+          : null,
+        upcoming,
+        missed: [],
+      });
+      upcoming = [];
+    } else if (el.classList.contains("missed-launch")) {
+      entries[entries.length - 1].missed = Array.from(el.querySelectorAll(".missed-item")).map(item => ({
+        text: item.querySelector(".missed-label").textContent,
+        buttons: Array.from(item.querySelectorAll(".alt-btn")).map(b => b.textContent),
+      }));
+    }
+  }
+  return entries;
+}
+
+const nums = dom => stack(dom).map(e => e.num);
+
+function paste(dom, text) {
+  setValue(dom, $(dom, "#pasteBox"), text);
+}
+
+function setSettings(dom, values) {
+  Object.entries(values).forEach(([id, value]) => setValue(dom, $(dom, "#" + id), value));
+}
+
+const tabTitles = dom => $$(dom, "#tabBar .tab-title-input").map(input => input.value);
+const currentTitle = dom => $(dom, "#tabBar .tab-item.active .tab-title-input").value;
+const clickTab = (dom, index) => $$(dom, "#tabBar .tab-title-input")[index].click();
+const addTab = dom => $(dom, "#tabBar .tab-add").click();
+const closeButtons = dom => $$(dom, "#tabBar .tab-close");
 
 // 別のブラウザのタブで集結タイムライン計算が保存したときと同じ通知を送る。
-function receiveSiegeUpdate(wave, siege) {
-  const value = siege.window.localStorage.getItem("siegeCalcTabs");
-  wave.window.localStorage.setItem("siegeCalcTabs", value);
-  wave.window.dispatchEvent(new wave.window.StorageEvent("storage", { key: "siegeCalcTabs", newValue: value }));
+function receiveSiege(dom, data) {
+  const value = JSON.stringify(data);
+  dom.window.localStorage.setItem(SIEGE_KEY, value);
+  dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: SIEGE_KEY, newValue: value }));
 }
 
-test.describe("タブと計測（WAVE-060〜WAVE-066）", () => {
-  test("2つのタブを同時に計測し、表示していないタブの経過時間も進む", t => {
-    const clock = createClock();
-    const dom = openWave({ clock });
-    t.after(() => dom.window.close());
+// 集結タイムライン計算の実物で計算した結果を保存データごと返す（SIEGE-045）。
+// 削りの集結5分、メイン／増援の集結3分。周期660秒、1周目の帰還の最大値768秒になる例。
+function siegeResult(t) {
+  const siege = openSiege();
+  t.after(() => siege.window.close());
+  fillSiege(siege, {
+    settings: { kz: 5, mr: 3, gap: 1, buf: 30 },
+    petSame: null,
+    members: [
+      { role: "メイン", label: "M", march: 60 },
+      { role: "増援", label: "R", march: 40 },
+      { role: "削り", label: "A", march: 30 },
+      { role: "削り", label: "B", march: 100, pet: 8, usePet: true },
+      { role: "削り", label: "C", march: 50 },
+    ],
+    patterns: [{ kezuri: ["A", "B"], reinforce: ["R"] }, { kezuri: ["C"], reinforce: [] }],
+  });
+  const { output } = calculate(siege);
+  const storage = storageOf(siege);
+  return { output, storage, raw: storage[SIEGE_KEY], saved: JSON.parse(storage[SIEGE_KEY]) };
+}
 
-    $(dom, "#startBtn").click();
-    clock.advance(5000);
-    $(dom, "#addTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1 ▶ 00:05.0", "タイマー2"]);
-    // 新しいタブは停止していて、設定を編集できる。
-    assert.equal($(dom, "#startBtn").disabled, false);
-    assert.equal($(dom, "#periodSec").disabled, false);
-    assert.equal($(dom, "#emptyMsg").style.display, "block");
-
-    $(dom, "#startBtn").click();
-    clock.advance(3000);
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1 ▶ 00:08.0", "タイマー2 ▶ 00:03.0"]);
-    assert.deepEqual(cardNumbers(dom), ["00:03.0"]);
-
-    clickTab(dom, 0);
-    assert.deepEqual(cardNumbers(dom), ["00:08.0"]);
-    assert.equal($(dom, "#startBtn").disabled, true);
-    assert.equal($(dom, "#periodSec").disabled, true);
-
-    clock.advance(4000);
-    // 周期10秒ごとに予定が増える（WAVE-010）。
-    assert.deepEqual(cardNumbers(dom), ["00:12.0", "00:02.0"]);
-
-    clickTab(dom, 1);
-    $(dom, "#stopBtn").click();
-    clock.advance(2000);
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1 ▶ 00:14.0", "タイマー2"]);
-    assert.deepEqual(cardNumbers(dom), ["00:07.0"]);
-    clickTab(dom, 0);
-    assert.deepEqual(cardNumbers(dom), ["00:14.0", "00:04.0"]);
+test.describe("設定（WAVE-001〜WAVE-003）", () => {
+  test("既定値は周期10秒、MAX30秒、表示延長3秒", t => {
+    const dom = open(t);
+    assert.deepEqual(["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(id => $(dom, "#" + id).value),
+      ["0", "10", "0", "30", "3"]);
   });
 
-  test("予定の追加、消去、ストップ、再スタート、リセットは従来どおり（WAVE-010〜WAVE-023）", t => {
+  test("周期とMAXは分 × 60 + 秒で求め、経過時間はMM:SS.tで切り捨てて表示する（WAVE-002、WAVE-013）", t => {
     const clock = createClock();
-    const dom = openWave({ clock });
-    t.after(() => dom.window.close());
+    const dom = open(t, { clock });
+    setSettings(dom, { periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "0" });
+    start(dom, clock);
+    clock.advance(1299);
+    assert.deepEqual(nums(dom), ["00:01.2"]);
+    clock.advance(65000 - 1299 - 1);
+    assert.deepEqual(nums(dom), ["01:04.9"]);
+    clock.advance(1);
+    assert.deepEqual(nums(dom), ["01:05.0", "00:00.0"]);
+    assert.deepEqual(stack(dom).map(e => e.label), ["1個目", "2個目"]);
+  });
+
+  test("1秒未満の周期とMAXは1秒、0秒未満の表示延長は0秒とする（WAVE-002）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    setSettings(dom, { periodSec: "0", maxSec: "0", extraDisplaySec: "-3" });
+    start(dom, clock);
+    clock.advance(999);
+    assert.deepEqual(nums(dom), ["00:00.9"]);
+    // 1個目はMAX1秒 + 表示延長0秒で消え、同時に周期1秒の2個目が加わる。
+    clock.advance(1);
+    assert.deepEqual(nums(dom), ["00:00.0"]);
+  });
+
+  test("計測中は設定を編集できず、ストップ後は編集できる（WAVE-003）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    const inputs = () => ["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(id => $(dom, "#" + id).disabled);
+    assert.deepEqual(inputs(), [false, false, false, false, false]);
+    start(dom, clock);
+    assert.deepEqual(inputs(), [true, true, true, true, true]);
+    $(dom, "#stopBtn").click();
+    assert.deepEqual(inputs(), [false, false, false, false, false]);
+  });
+});
+
+test.describe("予定の追加と削除、操作（WAVE-010〜WAVE-014、WAVE-020〜WAVE-023）", () => {
+  test("周期ごとに予定を追加し、MAX + 表示延長に達した予定を消す", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    assert.equal($(dom, "#emptyMsg").textContent, "まだ予定がありません");
     assert.equal($(dom, "#emptyMsg").style.display, "block");
 
+    start(dom, clock);
+    assert.deepEqual(nums(dom), ["00:00.0"]);
+    assert.equal($(dom, "#emptyMsg").style.display, "none");
+    // ちょうど0.1秒の境目では、浮動小数の誤差で表示が0.1秒少なくなることがあるため、境目を避ける。
+    clock.advanceBy(32950);
+    assert.deepEqual(nums(dom), ["00:32.9", "00:22.9", "00:12.9", "00:02.9"]);
+    assert.deepEqual(stack(dom).map(e => e.label), ["1個目", "2個目", "3個目", "4個目"]);
+    clock.advance(50);
+    assert.deepEqual(nums(dom), ["00:23.0", "00:13.0", "00:03.0"]);
+    // 計測中のスタートは無視する（WAVE-020）。
     $(dom, "#startBtn").click();
-    assert.deepEqual(cardNumbers(dom), ["00:00.0"]);
-    clock.advance(32900);
-    assert.deepEqual(cardNumbers(dom), ["00:32.9", "00:22.9", "00:12.9", "00:02.9"]);
-    // MAX30秒 + 表示延長3秒に達した予定は消える。
-    clock.advance(100);
-    assert.deepEqual(cardNumbers(dom), ["00:23.0", "00:13.0", "00:03.0"]);
-    // 計測中のスタートは無視する。
-    $(dom, "#startBtn").click();
-    assert.deepEqual(cardNumbers(dom), ["00:23.0", "00:13.0", "00:03.0"]);
+    clock.advance(0);
+    assert.deepEqual(nums(dom), ["00:23.0", "00:13.0", "00:03.0"]);
+  });
+
+  test("タブの休止などで遅れても、予定の時刻はスタート時刻からの絶対時刻で決める（WAVE-011）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    start(dom, clock);
+    // 25秒間タイマーも描画も止まり、まとめて実行された場合。
+    clock.advance(25000);
+    assert.deepEqual(nums(dom), ["00:25.0", "00:15.0", "00:05.0"]);
+  });
+
+  test("ストップで凍結し、スタートで最初から計測し、リセットで消す（WAVE-021〜WAVE-023）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    start(dom, clock);
+    clock.advanceBy(12300);
+    const before = stack(dom);
+    assert.deepEqual(before.map(e => e.num), ["00:12.3", "00:02.3"]);
+    assert.deepEqual(before.map(e => e.upcoming), [["⏱ 18秒後：①A"], ["⏱ 28秒後：①A"]]);
 
     $(dom, "#stopBtn").click();
-    clock.advance(20000);
-    assert.deepEqual(cardNumbers(dom), ["00:23.0", "00:13.0", "00:03.0"]);
-    assert.equal($(dom, "#periodSec").disabled, false);
+    assert.equal($(dom, "#stopBtn").disabled, true);
+    assert.equal($(dom, "#startBtn").disabled, false);
+    clock.advanceBy(20000);
+    assert.deepEqual(stack(dom), before);
 
-    setValue(dom, $(dom, "#periodSec"), "5");
     $(dom, "#startBtn").click();
-    assert.deepEqual(cardNumbers(dom), ["00:00.0"]);
-    clock.advance(5000);
-    assert.deepEqual(cardNumbers(dom), ["00:05.0", "00:00.0"]);
+    clock.advance(0);
+    assert.deepEqual(nums(dom), ["00:00.0"]);
+    clock.advanceBy(5000);
+    assert.deepEqual(nums(dom), ["00:05.0"]);
 
     $(dom, "#resetBtn").click();
-    assert.deepEqual(cardNumbers(dom), []);
+    assert.deepEqual(stack(dom), []);
     assert.equal($(dom, "#emptyMsg").style.display, "block");
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-  });
-
-  test("計測中のタブを削除すると計測も終える", t => {
-    const clock = createClock();
-    const dom = openWave({ clock });
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    $(dom, "#startBtn").click();
-    clock.advance(1000);
-    $(dom, "#deleteTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1"]);
-    assert.equal($(dom, "#deleteTabBtn").disabled, true);
-    clock.advance(1000);
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1"]);
-  });
-
-  test("設定はタブごとに独立し、名前を変更できる", t => {
-    const dom = openWave({ confirm: () => false });
-    t.after(() => dom.window.close());
-    setValue(dom, $(dom, "#periodSec"), "20");
-    $(dom, "#addTabBtn").click();
-    assert.equal($(dom, "#periodSec").value, "10");
-    setValue(dom, $(dom, "#tabNameInput"), "別動隊");
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1", "別動隊"]);
-    $(dom, "#deleteTabBtn").click();
-    assert.equal(tabs(dom).length, 2);
-    clickTab(dom, 0);
-    assert.equal($(dom, "#periodSec").value, "20");
-    setValue(dom, $(dom, "#tabNameInput"), "");
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-  });
-
-  test("矢印キー、Home、Endでタブを切り替え、端から反対の端へ回り込む（WAVE-066）", t => {
-    const dom = openWave();
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    $(dom, "#addTabBtn").click();
-    clickTab(dom, 0);
-    const press = key => dom.window.document.activeElement.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
-    tabs(dom)[0].focus();
-    press("ArrowRight");
-    assert.equal(selectedTab(dom).textContent, "タイマー2");
-    assert.equal(dom.window.document.activeElement, selectedTab(dom));
-    assert.deepEqual(tabs(dom).map(tab => tab.tabIndex), [-1, 0, -1]);
-    press("End");
-    assert.equal(selectedTab(dom).textContent, "タイマー3");
-    press("ArrowRight");
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-    press("ArrowLeft");
-    assert.equal(selectedTab(dom).textContent, "タイマー3");
-    press("Home");
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-    assert.deepEqual(tabs(dom).map(tab => tab.tabIndex), [0, -1, -1]);
-  });
-
-  test("タブを削除しても番号を再利用せず、右隣、なければ左隣を表示する（WAVE-063、WAVE-065）", t => {
-    const dom = openWave();
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    $(dom, "#addTabBtn").click();
-    clickTab(dom, 1);
-    $(dom, "#deleteTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1", "タイマー3"]);
-    assert.equal(selectedTab(dom).textContent, "タイマー3");
-    $(dom, "#deleteTabBtn").click();
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-    $(dom, "#addTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1", "タイマー4"]);
-  });
-
-  test("矢印キーでタブを切り替える", t => {
-    const dom = openWave();
-    t.after(() => dom.window.close());
-    $(dom, "#addTabBtn").click();
-    tabs(dom)[1].focus();
-    dom.window.document.activeElement.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    assert.equal(selectedTab(dom).textContent, "タイマー1");
-    assert.equal(dom.window.document.activeElement, selectedTab(dom));
+    assert.equal($(dom, "#startBtn").disabled, false);
+    assert.equal($(dom, "#stopBtn").disabled, true);
+    clock.advanceBy(20000);
+    assert.deepEqual(stack(dom), []);
   });
 });
 
-test.describe("計算元の読み込み（WAVE-070〜WAVE-076）", () => {
-  test("選んだ計算元の1周目を読み込み、その周期で進行を表示する", t => {
-    const { output, storage } = siegeStorage(t);
+test.describe("タイムラインの解析と進行表示（WAVE-030〜WAVE-032、WAVE-043〜WAVE-049）", () => {
+  const TIMELINE = [
+    "①A+B→メイン→増援",
+    "0分10秒 → ①B（5分集結）※行軍77秒（6分17秒着、7分34秒帰還）",
+    "0:20 → ①A(3分集結)",
+    "0分15秒 → ①B（5分集結）",
+    "②C→メイン",
+    "0分30秒 → ②C（5分集結）",
+    "メモ 0分40秒 → ③X（5分集結）",
+    "0分50秒 ③Y → 予定",
+    "0:45 → 予定なし",
+    "1分00秒 → ②D（3分集結）",
+    "",
+    "周期：11分00秒",
+  ].join("\n");
+
+  test("発起行だけを読み、記号ごとに名前を重複なく連結した見出しを1個目のカードに並べる（WAVE-031、WAVE-032、WAVE-045）", t => {
     const clock = createClock();
-    const dom = openWave({ clock, storage });
-    t.after(() => dom.window.close());
-
-    const select = $(dom, "#sourceSelect");
-    assert.deepEqual(Array.from(select.options).map(o => o.textContent), ["計算1", "計算2（計算結果なし）"]);
-    // 画面幅900px以下で隠す貼り付け欄の側に置かない（WAVE-035、WAVE-070）。
-    assert.equal(select.closest(".col-side"), null);
-
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#pasteBox").value, output);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-
-    // 周期：11分30秒（690秒）でループする。300秒では①が終わって次の周を待つ。
-    $(dom, "#startBtn").click();
-    clock.advance(300000);
-    const waiting = $$(dom, "#itemStack .item-card").pop();
-    assert.equal(waiting.querySelector(".item-label").textContent, "2周目");
-    assert.equal(waiting.querySelector(".item-num").textContent, "-06:30.0");
-    clock.advance(400000);
-    // 700秒は2周目の10秒目で、①から始まる。
-    const first = $(dom, "#itemStack .item-card .item-timeline");
-    assert.match(first.textContent, /①A\+B\+C/);
+    const dom = open(t, { clock });
+    paste(dom, TIMELINE);
+    setSettings(dom, { periodMin: "5", maxMin: "5" });
+    start(dom, clock);
+    const [first] = stack(dom);
+    assert.deepEqual(first.timeline, ["①B+A", "②C+D"]);
+    assert.deepEqual(first.upcoming, ["⏱ 10秒後：①B", "⏱ 15秒後：①B", "⏱ 20秒後：①A", "⏱ 30秒後：②C", "⏱ 60秒後：②D"]);
+    // パターンの最後の発起（①は20秒、②は60秒）を過ぎたパターンは並べない。
+    clock.advance(20000);
+    assert.deepEqual(stack(dom)[0].timeline, ["②C+D"]);
+    clock.advance(40000);
+    assert.deepEqual(stack(dom)[0].timeline, []);
   });
 
-  test("読み込んだ後の計算し直しは取り込まず、更新されたことを表示する", t => {
-    const { siege, output, storage } = siegeStorage(t);
+  test("2個目以降のカードにはパターンを並べず、各予定は追加された時刻を0秒として独立に進む（WAVE-044、WAVE-045）", t => {
     const clock = createClock();
-    const dom = openWave({ clock, storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    $(dom, "#startBtn").click();
-    clock.advance(1000);
-
-    // 別のタブ（計算2）を計算しても、計算1から読み込んだタブは更新扱いにしない。
-    calculate(siege);
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-
-    const before = { cards: cardNumbers(dom), timeline: $(dom, "#itemStack .item-timeline").textContent };
-    clickTab(siege, 0);
-    setValue(siege, $(siege, "#buffer"), "60");
-    calculate(siege);
-    receiveSiegeUpdate(dom, siege);
-
-    assert.equal($(dom, "#sourceStatus").textContent, "⚠ 計算元が更新されています。もう一度読み込むと反映します");
-    assert.equal($(dom, "#sourceStatus").classList.contains("warning"), true);
-    assert.equal($(dom, "#pasteBox").value, output);
-    assert.equal($(dom, "#startBtn").disabled, true);
-    // 計測中の表示も変わらない（WAVE-071）。経過300秒で、次の周までの残りは旧い周期690秒から求まる。
-    assert.deepEqual({ cards: cardNumbers(dom), timeline: $(dom, "#itemStack .item-timeline").textContent }, before);
-    clock.advance(299000);
-    const waiting = () => $$(dom, "#itemStack .item-card").pop().querySelector(".item-num").textContent;
-    assert.equal(waiting(), "-06:30.0");
-
-    // 計測中に読み込むと、計測を止めずに新しいタイムラインの周期で続ける。
-    $(dom, "#loadSourceBtn").click();
-    assert.notEqual($(dom, "#pasteBox").value, output);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-    assert.equal($(dom, "#startBtn").disabled, true);
-    const cycle = $(dom, "#pasteBox").value.match(/周期：(\d+)分(\d+)秒/);
-    const newCycle = Number(cycle[1]) * 60 + Number(cycle[2]);
-    assert.ok(newCycle > 690);
-    clock.advance(0);
-    const remain = newCycle - 300;
-    assert.equal(waiting(), `-${String(Math.floor(remain / 60)).padStart(2, "0")}:${String(remain % 60).padStart(2, "0")}.0`);
+    const dom = open(t, { clock });
+    paste(dom, TIMELINE);
+    start(dom, clock);
+    clock.advanceBy(12000);
+    const [first, second] = stack(dom);
+    assert.deepEqual(first.upcoming, ["⏱ 3秒後：①B", "⏱ 8秒後：①A", "⏱ 18秒後：②C", "⏱ 48秒後：②D"]);
+    assert.deepEqual(first.missed.map(m => m.text), ["⚠ 2秒前に発起予定だった：①B"]);
+    assert.equal(second.timeline, null);
+    assert.deepEqual(second.upcoming, ["⏱ 8秒後：①B", "⏱ 13秒後：①B", "⏱ 18秒後：①A", "⏱ 28秒後：②C", "⏱ 58秒後：②D"]);
+    assert.deepEqual(second.missed, []);
   });
 
-  test("計算元の最新の計算が結果を出せなかったら、読み込み済みのタイムラインを使うと表示する", t => {
-    const { siege, output, storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-
-    clickTab(siege, 0);
-    $(siege, ".role-select").value = "削り";
-    $(siege, ".role-select").dispatchEvent(new siege.window.Event("change", { bubbles: true }));
-    assert.equal(calculate(siege).output, "メイン役割のメンバーがいません");
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent,
-      "⚠ 計算元の最新の計算は結果を出せませんでした。読み込み済みのタイムラインを使っています");
-    assert.equal($(dom, "#pasteBox").value, output);
-  });
-
-  test("計算元の入力を変えただけでは、最後に計算した結果を読み込む（SIEGE-043）", t => {
-    const { siege, output } = siegeStorage(t);
-    clickTab(siege, 0);
-    setValue(siege, $(siege, "#buffer"), "45");
-    assert.notEqual($(siege, "#resultNotice").textContent, "");
-    const dom = openWave({ storage: storageOf(siege) });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#pasteBox").value, output);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-  });
-
-  test("計算元のタブが削除されたら、その旨を表示する", t => {
-    const { siege, storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-
-    clickTab(siege, 0);
-    $(siege, "#deleteTabBtn").click();
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent, "⚠ 計算元のタブ「計算1」は削除されています");
-    assert.deepEqual(Array.from($(dom, "#sourceSelect").options).map(o => o.textContent), ["計算2（計算結果なし）"]);
-  });
-
-  test("計算元の保存データが作り直されたら、同じ名前と版番号でも削除されたと表示する（WAVE-073、SIEGE-041）", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-
-    // 集結タイムライン計算の保存データだけが壊れ、作り直したタブ「計算1」で同じ入力を1回計算する。
-    const rebuilt = openSiege({ storage: { siegeCalcTabs: "{壊れたJSON" } });
-    t.after(() => rebuilt.window.close());
-    fillSiege(rebuilt, SIEGE_CASE);
-    calculate(rebuilt);
-    // 名前、通し番号、版番号は読み込んだ計算元と同じで、idだけが違う場面にする。
-    const before = JSON.parse(storage.siegeCalcTabs).tabs[0];
-    const after = JSON.parse(rebuilt.window.localStorage.getItem("siegeCalcTabs")).tabs[0];
-    assert.deepEqual([after.name, after.seq, after.result.revision], [before.name, before.seq, before.result.revision]);
-    assert.notEqual(after.id, before.id);
-    receiveSiegeUpdate(dom, rebuilt);
-    assert.equal($(dom, "#sourceStatus").textContent, "⚠ 計算元のタブ「計算1」は削除されています");
-  });
-
-  test("集結タイムライン計算を開き直しても、計算元との関連は切れない（SIEGE-041、WAVE-073）", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-
-    // 開き直した集結タイムライン計算で別のタブを計算し、保存し直す。
-    const reopened = openSiege({ storage });
-    t.after(() => reopened.window.close());
-    calculate(reopened);
-    receiveSiegeUpdate(dom, reopened);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-  });
-
-  test("計算元の名前は、読み込み済みでは今の名前、削除では読み込んだ時点の名前を使う（WAVE-073）", t => {
-    const { siege, storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-
-    clickTab(siege, 0);
-    setValue(siege, $(siege, "#tabNameInput"), "本隊");
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：本隊から読み込み済み");
-
-    $(siege, "#deleteTabBtn").click();
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent, "⚠ 計算元のタブ「計算1」は削除されています");
-  });
-
-  test("計算し直して読み込める結果の後に読み込めない結果が続けば、結果を出せなかったと表示する（WAVE-073）", t => {
-    const { siege, storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-
-    clickTab(siege, 0);
-    setValue(siege, $(siege, "#buffer"), "45");
-    calculate(siege);
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent, "⚠ 計算元が更新されています。もう一度読み込むと反映します");
-
-    $(siege, ".role-select").value = "削り";
-    $(siege, ".role-select").dispatchEvent(new siege.window.Event("change", { bubbles: true }));
-    assert.equal(calculate(siege).output, "メイン役割のメンバーがいません");
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceStatus").textContent,
-      "⚠ 計算元の最新の計算は結果を出せませんでした。読み込み済みのタイムラインを使っています");
-  });
-
-  test("選び直した計算元は、保存の通知で読み込み済みの計算元へ戻らない（WAVE-074）", t => {
-    const { siege, storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    const second = $(dom, "#sourceSelect").options[1].value;
-    setValue(dom, $(dom, "#sourceSelect"), second, "change");
-
-    // 選んだ計算2を、別のブラウザのタブの集結タイムライン計算で計算する。
-    setValue(siege, $(siege, "#buffer"), "45");
-    const { output } = calculate(siege);
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceSelect").value, second);
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#pasteBox").value, output);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算2から読み込み済み");
-  });
-
-  test("選び直した計算元は、自分の保存データの読み直しでも保つ（WAVE-074）", t => {
-    const { storage } = siegeStorage(t);
-    const a = openWave({ storage });
-    t.after(() => a.window.close());
-    $(a, "#loadSourceBtn").click();
-    const b = openWave({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    const second = $(b, "#sourceSelect").options[1].value;
-    setValue(b, $(b, "#sourceSelect"), second, "change");
-    setValue(a, $(a, "#periodSec"), "20");
-    const value = a.window.localStorage.getItem("waveTimerTabs");
-    b.window.localStorage.setItem("waveTimerTabs", value);
-    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
-    assert.equal($(b, "#sourceSelect").value, second);
-    // タブを切り替えたときは、そのタブの読み込み済みの計算元（計算1）を選ぶ。
-    $(b, "#addTabBtn").click();
-    clickTab(b, 0);
-    assert.equal($(b, "#sourceSelect").value, $(b, "#sourceSelect").options[0].value);
-  });
-
-  test("選び直した計算元は、ブラウザがページを復元したときも保つ（WAVE-074）", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    const second = $(dom, "#sourceSelect").options[1].value;
-    setValue(dom, $(dom, "#sourceSelect"), second, "change");
-    const shown = new dom.window.Event("pageshow");
-    Object.defineProperty(shown, "persisted", { value: true });
-    dom.window.dispatchEvent(shown);
-    assert.equal($(dom, "#sourceSelect").value, second);
-  });
-
-  test("選んでいた計算元のタブが削除されたら、先頭ではなく読み込み済みの計算元を選ぶ（WAVE-074）", t => {
-    const { siege } = siegeStorage(t);
-    // 計算3を加え、計算2を計算する。読み込み済みの計算元を先頭以外に置く。
-    $(siege, "#addTabBtn").click();
-    clickTab(siege, 1);
-    calculate(siege);
-    const dom = openWave({ storage: storageOf(siege) });
-    t.after(() => dom.window.close());
-    const ids = Array.from($(dom, "#sourceSelect").options).map(o => o.value);
-    setValue(dom, $(dom, "#sourceSelect"), ids[1], "change");
-    $(dom, "#loadSourceBtn").click();
-    setValue(dom, $(dom, "#sourceSelect"), ids[2], "change");
-
-    clickTab(siege, 2);
-    $(siege, "#deleteTabBtn").click();
-    receiveSiegeUpdate(dom, siege);
-    assert.equal($(dom, "#sourceSelect").value, ids[1]);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算2から読み込み済み");
-  });
-
-  test("表示中のタブが別のブラウザのタブで削除されたら、次に表示するタブの読み込み済みの計算元を選ぶ（WAVE-074、WAVE-053）", t => {
-    const { storage } = siegeStorage(t);
-    const a = openWave({ storage });
-    t.after(() => a.window.close());
-    $(a, "#loadSourceBtn").click();
-    $(a, "#addTabBtn").click();
-    const b = openWave({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    // Bはタイマー2で計算2を選ぶ（読み込まない）。
-    assert.equal(selectedTab(b).textContent, "タイマー2");
-    const ids = Array.from($(b, "#sourceSelect").options).map(o => o.value);
-    setValue(b, $(b, "#sourceSelect"), ids[1], "change");
-
-    // Aでタイマー2を削除すると、Aはタイマー1を表示して保存する。
-    $(a, "#deleteTabBtn").click();
-    const value = a.window.localStorage.getItem("waveTimerTabs");
-    b.window.localStorage.setItem("waveTimerTabs", value);
-    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
-    assert.equal(selectedTab(b).textContent, "タイマー1");
-    assert.equal($(b, "#sourceSelect").value, ids[0]);
-    assert.equal($(b, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-  });
-
-  test("計算結果のないタブは読み込まない", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    setValue(dom, $(dom, "#pasteBox"), "①手入力\n0分10秒 → X");
-    setValue(dom, $(dom, "#sourceSelect"), $(dom, "#sourceSelect").options[1].value, "change");
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#sourceStatus").textContent, "このタブには読み込める計算結果がありません");
-    assert.equal($(dom, "#pasteBox").value, "①手入力\n0分10秒 → X");
-  });
-
-  test("計算元がなければ読み込めないことを示す", t => {
-    const dom = openWave();
-    t.after(() => dom.window.close());
-    const select = $(dom, "#sourceSelect");
-    assert.deepEqual(Array.from(select.options).map(o => o.textContent), ["集結タイムライン計算のタブがありません"]);
-    assert.equal(select.disabled, true);
-    assert.equal($(dom, "#loadSourceBtn").disabled, true);
-  });
-
-  test("貼り付け欄を手で編集すると計算元との関連を外す", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    setValue(dom, $(dom, "#pasteBox"), $(dom, "#pasteBox").value + "\n");
-    assert.equal($(dom, "#sourceStatus").textContent, "");
-    const saved = JSON.parse(dom.window.localStorage.getItem("waveTimerTabs"));
-    assert.equal(saved.tabs[0].source, null);
-  });
-
-  test("タブごとに別の計算元を持つ", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    $(dom, "#addTabBtn").click();
-    assert.equal($(dom, "#pasteBox").value, "");
-    assert.equal($(dom, "#sourceStatus").textContent, "");
-    clickTab(dom, 0);
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-  });
-
-  test("集結タイムライン計算の保存データを書き換えない（WAVE-076）", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    setValue(dom, $(dom, "#pasteBox"), "書き換え");
-    assert.equal(dom.window.localStorage.getItem("siegeCalcTabs"), storage.siegeCalcTabs);
-  });
-});
-
-test.describe("保存（WAVE-050〜WAVE-053）", () => {
-  test("貼り付けの保存に成功すれば知らせ、保存できなくても計測とタブは動く（WAVE-030、COM-041）", t => {
+  test("発起行が1つもなければ、1個目のカードに貼り付けられていないと表示する（WAVE-043）", t => {
     const clock = createClock();
-    const dom = openWave({ clock });
-    t.after(() => dom.window.close());
-    setValue(dom, $(dom, "#pasteBox"), "①A\n0分00秒 → A\n周期：1分00秒");
+    const dom = open(t, { clock });
+    start(dom, clock);
+    assert.deepEqual(stack(dom)[0].timeline, ["タイムラインのテキストが貼り付けられていません"]);
+    paste(dom, "①A→メイン\n\n周期：1分00秒");
+    assert.deepEqual(stack(dom)[0].timeline, ["タイムラインのテキストが貼り付けられていません"]);
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    assert.deepEqual(stack(dom)[0].timeline, ["①A"]);
+  });
+
+  // 同じ秒にまとめる人は、元の集結時間が同じになるようにする。集結時間の違う人が同じ秒にまとまったときは、
+  // 一部の人が表示から消える既知の不具合（KI-WAVE-25）に当たるため、期待値にしない。
+  const GROUPS = [
+    "0分10秒 → ①A（5分集結）",
+    "0分10秒 → ②B（5分集結）",
+    "0分11秒 → ①C（1分集結）",
+    "0分12秒 → ②D",
+    "0分13秒 → ③E（3分集結）",
+    "0分14秒 → ④F（10分集結）",
+    "1分20秒 → ③G（3分集結）",
+  ].join("\n");
+
+  test("60秒以内に発起する人と、発起を過ぎて30秒以内の人を、四捨五入した秒ごとにまとめる（WAVE-046〜WAVE-048）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    paste(dom, GROUPS);
+    setSettings(dom, { periodMin: "1", periodSec: "40", maxMin: "3", maxSec: "0" });
+    start(dom, clock);
+    clock.advance(9400);
+    assert.deepEqual(stack(dom)[0].upcoming,
+      ["⏱ 1秒後：①A、②B", "⏱ 2秒後：①C", "⏱ 3秒後：②D", "⏱ 4秒後：③E", "⏱ 5秒後：④F"]);
+
+    clock.advance(5200); // 経過14.6秒
+    const [first] = stack(dom);
+    assert.deepEqual(first.upcoming, []);
+    // 時短の候補は元の集結時間より短い最大のもの。秒は 発起時刻 + (元 - 候補) × 60 - 経過 を四捨五入する。
+    assert.deepEqual(first.missed, [
+      { text: "⚠ 1秒前に発起予定だった：④F", buttons: ["5分集結で出す（299秒後）"] },
+      { text: "⚠ 2秒前に発起予定だった：③E", buttons: ["1分集結で出す（118秒後）"] },
+      { text: "⚠ 3秒前に発起予定だった：②D", buttons: [] },
+      { text: "⚠ 4秒前に発起予定だった：①C", buttons: [] },
+      { text: "⚠ 5秒前に発起予定だった：①A、②B", buttons: ["3分集結で出す（115秒後）"] },
+    ]);
+
+    // 発起を過ぎて30秒までは表示し、それを過ぎたら消す。
+    clock.advance(29400); // 経過44.0秒
+    assert.deepEqual(stack(dom)[0].missed.map(m => m.text), ["⚠ 30秒前に発起予定だった：④F"]);
+    clock.advance(600);
+    assert.deepEqual(stack(dom)[0].missed, []);
+    // 発起まで60秒を超えていた③G（80秒）は、60秒以内になってから表示する。
+    assert.deepEqual(stack(dom)[0].upcoming, ["⏱ 35秒後：③G"]);
+  });
+
+  test("時短のボタンを押した人は、その予定でだけ新しい発起時刻と集結時間で扱う（WAVE-049）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    paste(dom, GROUPS);
+    setSettings(dom, { periodMin: "1", periodSec: "40", maxMin: "3", maxSec: "0" });
+    start(dom, clock);
+    clock.advance(14600);
+    const button = $$(dom, ".alt-btn").find(b => b.textContent === "3分集結で出す（115秒後）");
+    button.click();
+    const [first] = stack(dom);
+    assert.deepEqual(first.missed.map(m => m.text), [
+      "⚠ 1秒前に発起予定だった：④F", "⚠ 2秒前に発起予定だった：③E",
+      "⚠ 3秒前に発起予定だった：②D", "⚠ 4秒前に発起予定だった：①C",
+    ]);
+    // 新しい発起時刻は 10 + (5 - 3) × 60 = 130秒。経過75秒で残り55秒になる。
+    clock.advance(60400);
+    assert.deepEqual(stack(dom)[0].upcoming, ["⏱ 5秒後：③G", "⏱ 55秒後：①A、②B"]);
+    // 100秒に追加した2個目の予定には適用しない。経過114.6秒で2個目は14.6秒。
+    clock.advance(39600);
+    const [after, second] = stack(dom);
+    assert.deepEqual(after.upcoming, ["⏱ 15秒後：①A、②B"]);
+    assert.deepEqual(second.missed.pop(), { text: "⚠ 5秒前に発起予定だった：①A、②B", buttons: ["3分集結で出す（115秒後）"] });
+  });
+
+  test("貼り付け欄の入力のたびに保存して解析し、1.5秒間「保存しました」と表示する（WAVE-030）", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    start(dom, clock);
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), "0分30秒 → ①A（5分集結）");
     assert.equal($(dom, "#saveStatus").textContent, "保存しました");
+    assert.deepEqual(stack(dom)[0].upcoming, ["⏱ 30秒後：①A"]);
+    clock.advance(1499);
+    assert.equal($(dom, "#saveStatus").textContent, "保存しました");
+    clock.advance(1);
+    assert.equal($(dom, "#saveStatus").textContent.trim(), "");
+  });
 
-    dom.window.Storage.prototype.setItem = () => { throw new Error("使えない"); };
-    setValue(dom, $(dom, "#pasteBox"), "①B\n0分00秒 → B\n周期：1分00秒");
+  test("保存に失敗したら「この環境では保存できません」と表示する（WAVE-030）", t => {
+    const dom = open(t);
+    dom.window.Storage.prototype.setItem = () => { throw new dom.window.DOMException("quota", "QuotaExceededError"); };
+    paste(dom, "0分30秒 → ①A（5分集結）");
     assert.equal($(dom, "#saveStatus").textContent, "この環境では保存できません");
-
-    // 次の周を待つカードを除き、予定のカードだけを見る。
-    const firstItem = () => $(dom, "#itemStack .item-card .item-num").textContent;
-    $(dom, "#startBtn").click();
-    clock.advance(1000);
-    assert.equal(firstItem(), "00:01.0");
-    $(dom, "#addTabBtn").click();
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1 ▶ 00:01.0", "タイマー2"]);
-    clickTab(dom, 0);
-    assert.equal(firstItem(), "00:01.0");
-    assert.equal($(dom, "#pasteBox").value, "①B\n0分00秒 → B\n周期：1分00秒");
   });
+});
 
-  test("別のブラウザのタブで保存されたら読み直し、計測中のタブは計測を続ける（WAVE-053）", t => {
-    const clock = createClock();
-    const a = openWave({ clock: createClock() });
-    t.after(() => a.window.close());
-    const b = openWave({ clock, storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(b, "#startBtn").click();
-    clock.advance(5000);
-
-    $(a, "#addTabBtn").click();
-    setValue(a, $(a, "#tabNameInput"), "別動隊");
-    const value = a.window.localStorage.getItem("waveTimerTabs");
-    b.window.localStorage.setItem("waveTimerTabs", value);
-    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
-
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["タイマー1 ▶ 00:05.0", "別動隊"]);
-    assert.equal(selectedTab(b).textContent, "タイマー1 ▶ 00:05.0");
-    clock.advance(1000);
-    assert.deepEqual(cardNumbers(b), ["00:06.0"]);
-    // Bで設定を変えても、Aで加えたタブは残る。
-    clickTab(b, 1);
-    setValue(b, $(b, "#periodSec"), "20");
-    const saved = JSON.parse(b.window.localStorage.getItem("waveTimerTabs"));
-    assert.deepEqual(saved.tabs.map(x => x.name), ["タイマー1", "別動隊"]);
-    assert.equal(saved.tabs[1].settings.periodSec, "20");
-  });
-
-  function receiveOwnWave(target, source) {
-    const value = source.window.localStorage.getItem("waveTimerTabs");
-    target.window.localStorage.setItem("waveTimerTabs", value);
-    target.window.dispatchEvent(new target.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
+test.describe("localStorageを使えない環境（COM-041）", () => {
+  for (const [name, failure] of Object.entries(STORAGE_FAILURES)) {
+    test(`保存できなくても、解析、計測、タブの追加ができる（${name}）`, t => {
+      const clock = createClock();
+      const dom = open(t, { clock, beforeParse: failure });
+      paste(dom, "0分30秒 → ①A（5分集結）");
+      assert.equal($(dom, "#saveStatus").textContent, "この環境では保存できません");
+      start(dom, clock);
+      assert.deepEqual(nums(dom), ["00:00.0"]);
+      assert.deepEqual(stack(dom)[0].upcoming, ["⏱ 30秒後：①A"]);
+      clock.advance(10000);
+      assert.deepEqual(nums(dom), ["00:10.0", "00:00.0"]);
+      $(dom, "#stopBtn").click();
+      addTab(dom);
+      assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー2"]);
+      assert.equal(currentTitle(dom), "タイマー2");
+    });
   }
+});
 
-  test("別のブラウザのタブで計測中のタブの設定が変わっても、計測中の設定を表示し続ける（WAVE-053）", t => {
-    const clock = createClock();
-    const a = openWave({ clock: createClock() });
-    t.after(() => a.window.close());
-    const b = openWave({ clock, storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(b, "#startBtn").click();
-    setValue(a, $(a, "#periodSec"), "20");
-    setValue(a, $(a, "#pasteBox"), "①A\n0分00秒 → A\n周期：1分00秒");
-    receiveOwnWave(b, a);
-
-    // 計測はスタート時の周期10秒で続き、入力欄もその値を表示する。タイムラインは置き換える。
-    assert.equal($(b, "#periodSec").value, "10");
-    assert.equal($(b, "#periodSec").disabled, true);
-    assert.equal($(b, "#pasteBox").value, "①A\n0分00秒 → A\n周期：1分00秒");
-    clock.advance(10000);
-    assert.deepEqual(cardNumbers(b).slice(0, 2), ["00:10.0", "00:00.0"]);
-    // 進行表示も置き換えたタイムラインで続ける（WAVE-071と同じ）。
-    const progress = $$(b, "#itemStack .item-timeline").map(el => el.textContent).join(" ");
-    assert.match(progress, /①A/);
-    assert.doesNotMatch(progress, /貼り付けられていません/);
-    // 止めると、保存された設定を表示する。
-    $(b, "#stopBtn").click();
-    assert.equal($(b, "#periodSec").value, "20");
-  });
-
-  test("別のブラウザのタブで計測中のタブが削除されたら、計測を終えたことを知らせる（WAVE-053）", t => {
-    const clock = createClock();
-    const a = openWave({ clock: createClock() });
-    t.after(() => a.window.close());
-    $(a, "#addTabBtn").click();
-    $(a, "#addTabBtn").click();
-    clickTab(a, 1);
-    const b = openWave({ clock, storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(b, "#startBtn").click();
-    clock.advance(1000);
-
-    // Aでタイマー2を削除すると、Aは右隣のタイマー3を表示して保存する。
-    $(a, "#deleteTabBtn").click();
-    receiveOwnWave(b, a);
-    assert.equal($(b, "#externalNotice").textContent, "⚠ 計測中のタブ「タイマー2」は、別のブラウザのタブで削除されたため計測を終えました");
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["タイマー1", "タイマー3"]);
-    assert.equal(selectedTab(b).textContent, "タイマー3");
-    // 次に操作すると知らせを消す。
-    clickTab(b, 0);
-    assert.equal($(b, "#externalNotice").textContent, "");
-  });
-
-  test("計測中のタブが続けて削除されたら名前を並べ、タブの追加と削除でも知らせを消す（WAVE-053）", t => {
-    const clock = createClock();
-    const a = openWave({ clock: createClock() });
-    t.after(() => a.window.close());
-    $(a, "#addTabBtn").click();
-    $(a, "#addTabBtn").click();
-    const b = openWave({ clock, storage: storageOf(a) });
-    t.after(() => b.window.close());
-    // Bはタイマー1とタイマー2を計測し、タイマー3を表示する。
-    clickTab(b, 0);
-    $(b, "#startBtn").click();
-    clickTab(b, 1);
-    $(b, "#startBtn").click();
-    clickTab(b, 2);
-
-    clickTab(a, 0);
-    $(a, "#deleteTabBtn").click();
-    receiveOwnWave(b, a);
-    // 表示していないタブが消えても、表示中のタブは変わらない。
-    assert.equal(selectedTab(b).textContent, "タイマー3");
-    clickTab(a, 0);
-    $(a, "#deleteTabBtn").click();
-    receiveOwnWave(b, a);
-    assert.equal($(b, "#externalNotice").textContent,
-      "⚠ 計測中のタブ「タイマー1」「タイマー2」は、別のブラウザのタブで削除されたため計測を終えました");
-
-    $(b, "#addTabBtn").click();
-    assert.equal($(b, "#externalNotice").textContent, "");
-
-    // 削除でも消す。Bでタブを削除できるよう、Aでタブを2つ加えてから知らせを出す。
-    $(a, "#addTabBtn").click();
-    $(a, "#addTabBtn").click();
-    receiveOwnWave(b, a);
-    clickTab(b, 0);
-    $(b, "#startBtn").click();
-    clickTab(a, 0);
-    $(a, "#deleteTabBtn").click();
-    receiveOwnWave(b, a);
-    assert.notEqual($(b, "#externalNotice").textContent, "");
-    $(b, "#deleteTabBtn").click();
-    assert.equal($(b, "#externalNotice").textContent, "");
-  });
-
-  test("別のブラウザのタブの保存の読み直しでは保存し直さず、読めない保存データは無視する（WAVE-053）", t => {
-    const a = openWave();
-    t.after(() => a.window.close());
-    const b = openWave({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(a, "#addTabBtn").click();
-    let writes = 0;
-    const original = b.window.Storage.prototype.setItem;
-    b.window.Storage.prototype.setItem = function (...args) { writes += 1; return original.apply(this, args); };
-    const value = a.window.localStorage.getItem("waveTimerTabs");
-    original.call(b.window.localStorage, "waveTimerTabs", value);
-    b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: value }));
-    assert.equal(writes, 0);
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["タイマー1", "タイマー2"]);
-
-    for (const broken of [null, "{壊れたJSON", '{"version":1,"tabs":[]}']) {
-      if (broken === null) b.window.localStorage.removeItem("waveTimerTabs");
-      else original.call(b.window.localStorage, "waveTimerTabs", broken);
-      b.window.dispatchEvent(new b.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: broken }));
-      assert.deepEqual(tabs(b).map(tab => tab.textContent), ["タイマー1", "タイマー2"], String(broken));
-    }
-  });
-
-  test("タブのidは、別のブラウザのタブで同時に加えても重ならない（WAVE-051）", t => {
-    const a = openWave();
-    t.after(() => a.window.close());
-    const b = openWave({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(a, "#addTabBtn").click();
-    $(b, "#addTabBtn").click();
-    const idA = JSON.parse(a.window.localStorage.getItem("waveTimerTabs")).tabs[1].id;
-    const idB = JSON.parse(b.window.localStorage.getItem("waveTimerTabs")).tabs[1].id;
-    assert.match(idA, /^w\d+-[0-9a-z]+$/);
-    assert.notEqual(idA, idB);
-  });
-
-  test("戻る操作でページが復元されたら、離れていた間の保存を読み直す（WAVE-053）", t => {
-    const a = openWave();
-    t.after(() => a.window.close());
-    const b = openWave({ storage: storageOf(a) });
-    t.after(() => b.window.close());
-    $(a, "#addTabBtn").click();
-    b.window.localStorage.setItem("waveTimerTabs", a.window.localStorage.getItem("waveTimerTabs"));
-    const shown = new b.window.Event("pageshow");
-    Object.defineProperty(shown, "persisted", { value: true });
-    b.window.dispatchEvent(shown);
-    assert.deepEqual(tabs(b).map(tab => tab.textContent), ["タイマー1", "タイマー2"]);
-  });
-
-  test("すべてのタブと最後に表示したタブを保存し、計測は止めて復元する", t => {
-    const { storage } = siegeStorage(t);
-    const clock = createClock();
-    const dom = openWave({ clock, storage });
-    t.after(() => dom.window.close());
-    $(dom, "#loadSourceBtn").click();
-    setValue(dom, $(dom, "#maxSec"), "45");
-    $(dom, "#startBtn").click();
-    $(dom, "#addTabBtn").click();
-    setValue(dom, $(dom, "#tabNameInput"), "予備");
-    setValue(dom, $(dom, "#pasteBox"), "①手入力\n0分10秒 → X\n周期：1分00秒");
-
-    const saved = JSON.parse(dom.window.localStorage.getItem("waveTimerTabs"));
-    assert.equal(saved.version, 1);
-    assert.equal(saved.activeTabId, saved.tabs[1].id);
-    assert.equal(saved.tabs[0].settings.maxSec, "45");
-    assert.equal(saved.tabs[0].source.siegeTabName, "計算1");
-    assert.equal(saved.tabs[0].source.revision, 1);
-    assert.equal(saved.tabs[1].timelineText, "①手入力\n0分10秒 → X\n周期：1分00秒");
-
-    const reopened = openWave({ storage: storageOf(dom), clock: createClock() });
-    t.after(() => reopened.window.close());
-    assert.deepEqual(tabs(reopened).map(tab => tab.textContent), ["タイマー1", "予備"]);
-    assert.equal(selectedTab(reopened).textContent, "予備");
-    assert.equal($(reopened, "#pasteBox").value, "①手入力\n0分10秒 → X\n周期：1分00秒");
-    clickTab(reopened, 0);
-    assert.equal($(reopened, "#maxSec").value, "45");
-    assert.equal($(reopened, "#startBtn").disabled, false);
-    assert.equal($(reopened, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-  });
-
-  test("旧キーの設定と貼り付けを最初のタブへ移し、旧キーは変えない", t => {
-    const settings = JSON.stringify({ periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "0", extraDisplaySec: "7" });
-    const pasted = "①旧\n0分00秒 → A\n周期：3分00秒";
-    const dom = openWave({ storage: { waveTimerSettings: settings, waveTimerPastedTimeline: pasted } });
-    t.after(() => dom.window.close());
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1"]);
-    assert.deepEqual(
-      ["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(id => $(dom, "#" + id).value),
-      ["1", "5", "2", "0", "7"]);
-    assert.equal($(dom, "#pasteBox").value, pasted);
-    setValue(dom, $(dom, "#periodSec"), "9");
-    assert.equal(dom.window.localStorage.getItem("waveTimerSettings"), settings);
-    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), pasted);
-
-    // 移した後に開き直しても、新しいキーを使い、移した後の編集を旧キーで上書きしない。
-    const reopened = openWave({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal(reopened.window.localStorage.getItem("waveTimerSettings"), settings);
-    assert.equal($(reopened, "#periodSec").value, "9");
-    assert.equal($(reopened, "#pasteBox").value, pasted);
-  });
-
-  test("旧形式から移したタイムラインには、計算し直して読み込むよう注意を出す（WAVE-077）", t => {
-    const pasted = "①旧\n0分00秒 → A\n周期：7分40秒";
-    const notice = "⚠ 旧形式から移したタイムラインです。集結タイムライン計算で計算し直して読み込んでください";
-    const dom = openWave({ storage: { waveTimerPastedTimeline: pasted } });
-    t.after(() => dom.window.close());
-    assert.equal($(dom, "#sourceStatus").textContent, notice);
-    assert.equal($(dom, "#sourceStatus").classList.contains("warning"), true);
-    assert.equal(JSON.parse(dom.window.localStorage.getItem("waveTimerTabs")).tabs[0].legacyTimeline, true);
-
-    // 開き直しても注意を続け、追加したタブには出さない。
-    const reopened = openWave({ storage: storageOf(dom) });
-    t.after(() => reopened.window.close());
-    assert.equal($(reopened, "#sourceStatus").textContent, notice);
-    $(reopened, "#addTabBtn").click();
-    assert.equal($(reopened, "#sourceStatus").textContent, "");
-    clickTab(reopened, 0);
-    assert.equal($(reopened, "#sourceStatus").textContent, notice);
-
-    // 手で編集すると注意を消す（WAVE-075と同じ扱い）。
-    setValue(reopened, $(reopened, "#pasteBox"), pasted + "\n");
-    assert.equal($(reopened, "#sourceStatus").textContent, "");
-    assert.equal(JSON.parse(reopened.window.localStorage.getItem("waveTimerTabs")).tabs[0].legacyTimeline, false);
-  });
-
-  test("旧形式から移したタイムラインは、計算元を読み込むと注意を消す（WAVE-077）", t => {
-    const { storage } = siegeStorage(t);
-    const dom = openWave({ storage: { ...storage, waveTimerPastedTimeline: "①旧\n0分00秒 → A\n周期：7分40秒" } });
-    t.after(() => dom.window.close());
-    assert.match($(dom, "#sourceStatus").textContent, /旧形式から移したタイムライン/);
-    $(dom, "#loadSourceBtn").click();
-    assert.equal($(dom, "#sourceStatus").textContent, "計算元：計算1から読み込み済み");
-    assert.equal(JSON.parse(dom.window.localStorage.getItem("waveTimerTabs")).tabs[0].legacyTimeline, false);
-  });
-
-  test("旧形式の貼り付けが空か空白だけなら注意を出さない（WAVE-077）", t => {
-    const settings = JSON.stringify({ periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "0", extraDisplaySec: "7" });
-    for (const pasted of ["", "  \n"]) {
-      const dom = openWave({ storage: { waveTimerSettings: settings, waveTimerPastedTimeline: pasted } });
-      t.after(() => dom.window.close());
-      assert.equal($(dom, "#sourceStatus").textContent, "", JSON.stringify(pasted));
-      assert.equal(JSON.parse(dom.window.localStorage.getItem("waveTimerTabs")).tabs[0].legacyTimeline, false);
-    }
-  });
-
-  test("新しいキーが空か壊れていれば、旧キーから移し直す（WAVE-052）", t => {
-    const settings = JSON.stringify({ periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "0", extraDisplaySec: "7" });
-    const pasted = "①旧\n0分00秒 → A\n周期：3分00秒";
-    for (const broken of ["{壊れたJSON", '{"version":1,"tabs":[]}', ""]) {
-      const dom = openWave({ storage: { waveTimerSettings: settings, waveTimerPastedTimeline: pasted, waveTimerTabs: broken } });
-      t.after(() => dom.window.close());
-      assert.equal($(dom, "#periodSec").value, "5", broken);
-      assert.equal($(dom, "#pasteBox").value, pasted, broken);
-      assert.equal(dom.window.localStorage.getItem("waveTimerSettings"), settings, broken);
-      assert.equal(JSON.parse(dom.window.localStorage.getItem("waveTimerTabs")).tabs.length, 1, broken);
-    }
-  });
-
-  test("新しいキーが空か壊れていて旧キーもなければ、既定値のタブを作る（WAVE-052）", t => {
-    for (const broken of ["{壊れたJSON", '{"version":1,"tabs":[]}', ""]) {
-      const dom = openWave({ storage: { waveTimerTabs: broken } });
-      t.after(() => dom.window.close());
-      assert.deepEqual(
-        ["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(id => $(dom, "#" + id).value),
-        ["0", "10", "0", "30", "3"], broken);
-      assert.equal($(dom, "#pasteBox").value, "", broken);
-      // 静的HTMLの既定値と区別するため、Scriptがタブを作って保存したことも確かめる。
-      assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1"], broken);
-      assert.equal(JSON.parse(dom.window.localStorage.getItem("waveTimerTabs")).tabs.length, 1, broken);
-    }
-  });
-
-  test("旧キーがなければ既定値のタブを作る", t => {
-    const dom = openWave();
-    t.after(() => dom.window.close());
-    assert.deepEqual(
-      ["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(id => $(dom, "#" + id).value),
-      ["0", "10", "0", "30", "3"]);
+test.describe("タブ（WAVE-037、WAVE-060〜WAVE-067）", () => {
+  test("「+」で既定値と空のタイムラインのタブを末尾に追加して表示し、設定はタブごとに独立する（WAVE-060、WAVE-063）", t => {
+    const dom = open(t);
+    assert.deepEqual(tabTitles(dom), ["タイマー1"]);
+    setSettings(dom, { periodSec: "20" });
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    addTab(dom);
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー2"]);
+    assert.equal(currentTitle(dom), "タイマー2");
+    assert.equal($(dom, "#periodSec").value, "10");
     assert.equal($(dom, "#pasteBox").value, "");
-    assert.deepEqual(tabs(dom).map(tab => tab.textContent), ["タイマー1"]);
+    setSettings(dom, { maxSec: "45" });
+    addTab(dom);
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー2", "タイマー3"]);
+    clickTab(dom, 0);
+    assert.equal(currentTitle(dom), "タイマー1");
+    assert.equal($(dom, "#periodSec").value, "20");
+    assert.equal($(dom, "#maxSec").value, "30");
+    assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+    clickTab(dom, 1);
+    assert.equal($(dom, "#maxSec").value, "45");
+  });
+
+  test("タブの名前を欄で直接変更して保存する（WAVE-064、WAVE-050）", t => {
+    const dom = open(t);
+    addTab(dom);
+    setValue(dom, $$(dom, "#tabBar .tab-title-input")[1], "別動隊");
+    assert.deepEqual(readJson(dom, "waveTimerTabs").map(tab => tab.title), ["タイマー1", "別動隊"]);
+    const reopened = open(t, { storage: storageOf(dom) });
+    assert.deepEqual(tabTitles(reopened), ["タイマー1", "別動隊"]);
+    assert.equal(currentTitle(reopened), "別動隊");
+  });
+
+  test("「×」は確認を取ってからタブと保存した内容を削除し、取り消せば何も変えない（WAVE-065）", t => {
+    let answer = false;
+    const messages = [];
+    const dom = open(t, { confirm: message => { messages.push(message); return answer; } });
+    assert.equal(closeButtons(dom).length, 0);
+    addTab(dom);
+    setSettings(dom, { periodSec: "20" });
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    $(dom, "#hideSideBtn").click();
+    const id = readJson(dom, "waveTimerTabs")[1].id;
+    addTab(dom);
+    assert.equal(closeButtons(dom).length, 3);
+    const keys = ["waveTimerSettings_", "waveTimerPastedTimeline_", "waveTimerSideHidden_"].map(k => k + id);
+    assert.ok(keys.every(key => dom.window.localStorage.getItem(key) !== null));
+
+    closeButtons(dom)[1].click();
+    assert.equal(messages.length, 1);
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー2", "タイマー3"]);
+    assert.ok(keys.every(key => dom.window.localStorage.getItem(key) !== null));
+
+    // 表示していないタブを削除しても、表示中のタブは変えない。
+    answer = true;
+    closeButtons(dom)[1].click();
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー3"]);
+    assert.equal(currentTitle(dom), "タイマー3");
+    assert.ok(keys.every(key => dom.window.localStorage.getItem(key) === null));
+    assert.deepEqual(readJson(dom, "waveTimerTabs").map(tab => tab.title), ["タイマー1", "タイマー3"]);
+
+    // 表示中のタブを削除すると、先頭のタブを表示する。1つだけになれば「×」を出さない。
+    closeButtons(dom)[1].click();
+    assert.deepEqual(tabTitles(dom), ["タイマー1"]);
+    assert.equal(currentTitle(dom), "タイマー1");
+    assert.equal(closeButtons(dom).length, 0);
+    assert.equal(dom.window.localStorage.getItem("waveTimerCurrentTab"), "default");
+  });
+
+  test("表示中のタブを削除して先頭のタブを表示する場合も、先頭のタブの設定を表示する（WAVE-065）", t => {
+    const dom = open(t);
+    setSettings(dom, { periodSec: "25" });
+    addTab(dom);
+    addTab(dom);
+    clickTab(dom, 1);
+    closeButtons(dom)[1].click();
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "タイマー3"]);
+    assert.equal(currentTitle(dom), "タイマー1");
+    assert.equal($(dom, "#periodSec").value, "25");
+  });
+
+  test("計測中かストップ後に切り替えるときは確認し、取り消せば切り替えず、切り替えれば計測を終える（WAVE-060、WAVE-067）", t => {
+    const clock = createClock();
+    let answer = false;
+    const messages = [];
+    const dom = open(t, { clock, confirm: message => { messages.push(message); return answer; } });
+    addTab(dom);
+    clickTab(dom, 0);
+    // 計測していなければ確認しない。
+    assert.deepEqual(messages, []);
+
+    start(dom, clock);
+    clock.advanceBy(1000);
+    clickTab(dom, 1);
+    assert.deepEqual(messages, ["動いているタイマーを止めてタブを切り替えます。よろしいですか？"]);
+    assert.equal(currentTitle(dom), "タイマー1");
+    assert.equal($(dom, "#startBtn").disabled, true);
+    clock.advanceBy(1000);
+    assert.deepEqual(nums(dom), ["00:02.0"]);
+
+    $(dom, "#stopBtn").click();
+    clickTab(dom, 1);
+    assert.equal(messages.length, 2);
+    assert.equal(currentTitle(dom), "タイマー1");
+
+    answer = true;
+    clickTab(dom, 1);
+    assert.equal(messages.length, 3);
+    assert.equal(currentTitle(dom), "タイマー2");
+    assert.deepEqual(stack(dom), []);
+    assert.equal($(dom, "#startBtn").disabled, false);
+    // 切り替えた後は計測していないため、戻るときは確認しない。計測も終わっている。
+    clickTab(dom, 0);
+    assert.equal(messages.length, 3);
+    clock.advanceBy(1000);
+    assert.deepEqual(stack(dom), []);
+  });
+
+  test("計測中にタブを追加するときも確認し、追加したタブへ切り替えると計測を終える（WAVE-067）", t => {
+    // 確認を取り消した場合はKI-WAVE-22に当たるため確かめない。
+    const clock = createClock();
+    const messages = [];
+    const dom = open(t, { clock, confirm: message => { messages.push(message); return true; } });
+    start(dom, clock);
+    addTab(dom);
+    assert.equal(messages.length, 1);
+    assert.equal(currentTitle(dom), "タイマー2");
+    clock.advanceBy(1000);
+    assert.deepEqual(stack(dom), []);
+  });
+
+  test("貼り付け欄を隠して表示を戻せ、その状態をタブごとに保存する（WAVE-037、WAVE-051）", t => {
+    const dom = open(t);
+    const side = () => [$(dom, "#colSide").style.display, $(dom, "#hideSideBtn").textContent];
+    assert.deepEqual(side(), ["", "貼り付け欄を隠す"]);
+    $(dom, "#hideSideBtn").click();
+    assert.deepEqual(side(), ["none", "貼り付け欄を表示"]);
+    assert.equal(dom.window.localStorage.getItem("waveTimerSideHidden"), "1");
+    addTab(dom);
+    assert.deepEqual(side(), ["", "貼り付け欄を隠す"]);
+    clickTab(dom, 0);
+    assert.deepEqual(side(), ["none", "貼り付け欄を表示"]);
+    $(dom, "#hideSideBtn").click();
+    assert.equal(dom.window.localStorage.getItem("waveTimerSideHidden"), "0");
+  });
+});
+
+test.describe("保存（WAVE-050〜WAVE-052）", () => {
+  test("タブの一覧、最後に表示したタブ、タブごとの設定とタイムラインを保存して復元し、計測は停止している", t => {
+    const clock = createClock();
+    const dom = open(t, { clock });
+    setSettings(dom, { periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "15", extraDisplaySec: "4" });
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    addTab(dom);
+    setSettings(dom, { periodSec: "20" });
+    paste(dom, "0分40秒 → ②B（3分集結）");
+    $(dom, "#hideSideBtn").click();
+    start(dom, clock);
+
+    const tabs = readJson(dom, "waveTimerTabs");
+    assert.deepEqual(tabs.map(tab => tab.title), ["タイマー1", "タイマー2"]);
+    assert.deepEqual(tabs.map(tab => Object.keys(tab).sort()), [["id", "title"], ["id", "title"]]);
+    assert.equal(tabs[0].id, "default");
+    const id = tabs[1].id;
+    assert.equal(dom.window.localStorage.getItem("waveTimerCurrentTab"), id);
+    // 最初のタブは接尾辞のないキー、追加したタブは`_{id}`を付けたキーを使う（WAVE-051、WAVE-052）。
+    assert.deepEqual(readJson(dom, "waveTimerSettings"),
+      { periodMin: "1", periodSec: "5", maxMin: "2", maxSec: "15", extraDisplaySec: "4" });
+    assert.deepEqual(readJson(dom, "waveTimerSettings_" + id),
+      { periodMin: "0", periodSec: "20", maxMin: "0", maxSec: "30", extraDisplaySec: "3" });
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), "0分30秒 → ①A（5分集結）");
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline_" + id), "0分40秒 → ②B（3分集結）");
+    assert.equal(dom.window.localStorage.getItem("waveTimerSideHidden_" + id), "1");
+    assert.equal(dom.window.localStorage.getItem("waveTimerSideHidden"), null);
+
+    const clock2 = createClock();
+    const reopened = open(t, { clock: clock2, storage: storageOf(dom) });
+    assert.deepEqual(tabTitles(reopened), ["タイマー1", "タイマー2"]);
+    assert.equal(currentTitle(reopened), "タイマー2");
+    assert.equal($(reopened, "#periodSec").value, "20");
+    assert.equal($(reopened, "#pasteBox").value, "0分40秒 → ②B（3分集結）");
+    assert.equal($(reopened, "#colSide").style.display, "none");
+    assert.equal($(reopened, "#startBtn").disabled, false);
+    clock2.advanceBy(1000);
+    assert.deepEqual(stack(reopened), []);
+    clickTab(reopened, 0);
+    assert.deepEqual(["periodMin", "periodSec", "maxMin", "maxSec", "extraDisplaySec"].map(i => $(reopened, "#" + i).value),
+      ["1", "5", "2", "15", "4"]);
+    assert.equal($(reopened, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+    assert.equal($(reopened, "#colSide").style.display, "");
+  });
+
+  test("タブの一覧がなければ、接尾辞のないキーの設定とタイムラインを最初のタブ「タイマー1」に表示する（WAVE-052）", t => {
+    const legacy = {
+      waveTimerSettings: JSON.stringify({ periodMin: "2", periodSec: "30", maxMin: "4", maxSec: "0", extraDisplaySec: "5" }),
+      waveTimerPastedTimeline: "0分30秒 → ①A（5分集結）",
+      waveTimerSideHidden: "1",
+    };
+    for (const tabs of [undefined, "[]", "{}", "\"default\"", "{壊れたJSON"]) {
+      const storage = tabs === undefined ? legacy : { ...legacy, waveTimerTabs: tabs };
+      const dom = open(t, { storage });
+      assert.deepEqual(tabTitles(dom), ["タイマー1"], String(tabs));
+      assert.equal($(dom, "#periodMin").value, "2");
+      assert.equal($(dom, "#periodSec").value, "30");
+      assert.equal($(dom, "#maxMin").value, "4");
+      assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+      assert.equal($(dom, "#colSide").style.display, "none");
+    }
+  });
+
+  test("最後に表示していたタブが一覧になければ、最初のタブを表示する（WAVE-050）", t => {
+    const dom = open(t, { storage: {
+      waveTimerTabs: JSON.stringify([{ id: "default", title: "タイマー1" }, { id: "t1", title: "夜" }]),
+      waveTimerCurrentTab: "t9",
+      waveTimerSettings_t1: JSON.stringify({ periodSec: "20" }),
+    } });
+    assert.deepEqual(tabTitles(dom), ["タイマー1", "夜"]);
+    assert.equal(currentTitle(dom), "タイマー1");
+    clickTab(dom, 1);
+    assert.equal($(dom, "#periodSec").value, "20");
+  });
+
+  test("設定は入力のたびに保存する（WAVE-051）", t => {
+    const dom = open(t);
+    setValue(dom, $(dom, "#maxMin"), "7");
+    assert.deepEqual(readJson(dom, "waveTimerSettings"),
+      { periodMin: "0", periodSec: "10", maxMin: "7", maxSec: "30", extraDisplaySec: "3" });
+  });
+});
+
+test.describe("集結タイムライン計算からの自動取り込み（WAVE-080〜WAVE-082）", () => {
+  test("ページを開くと計算結果を表示中のタブへ取り込み、保存して解析する（WAVE-080、WAVE-081、SIEGE-045）", t => {
+    const { output, storage, raw } = siegeResult(t);
+    const clock = createClock();
+    const dom = open(t, { clock, storage });
+    // 周期660秒は11分0秒、MAX768秒は12分48秒。
+    assert.deepEqual(["periodMin", "periodSec", "maxMin", "maxSec"].map(id => $(dom, "#" + id).value), ["11", "0", "12", "48"]);
+    assert.equal($(dom, "#pasteBox").value, output);
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), output);
+    assert.deepEqual(readJson(dom, "waveTimerSettings"),
+      { periodMin: "11", periodSec: "0", maxMin: "12", maxSec: "48", extraDisplaySec: "3" });
+    assert.equal($(dom, "#saveStatus").textContent, "集結タイムライン計算の結果を自動取得しました");
+    clock.advance(2499);
+    assert.equal($(dom, "#saveStatus").textContent, "集結タイムライン計算の結果を自動取得しました");
+    clock.advance(1);
+    assert.equal($(dom, "#saveStatus").textContent.trim(), "");
+
+    // 取り込んだ1周目を解析する。①はB、A、M、Rの順に発起し、Bは0秒、Aは47秒に発起する。
+    start(dom, clock);
+    clock.advance(1000);
+    const [first] = stack(dom);
+    assert.deepEqual(first.timeline, ["①B+A+M+R", "②C+M"]);
+    assert.deepEqual(first.upcoming, ["⏱ 46秒後：①A"]);
+    assert.deepEqual(first.missed, [{ text: "⚠ 1秒前に発起予定だった：①B", buttons: ["3分集結で出す（119秒後）"] }]);
+    // 集結タイムライン計算の保存データは書き換えない（WAVE-082）。
+    assert.equal(dom.window.localStorage.getItem(SIEGE_KEY), raw);
+  });
+
+  test("別のブラウザのタブで保存されたら取り込み、同じ結果は2度取り込まず、計測中は取り込まない（WAVE-080）", t => {
+    const { output, saved } = siegeResult(t);
+    const clock = createClock();
+    const dom = open(t, { clock });
+    assert.equal($(dom, "#pasteBox").value, "");
+
+    receiveSiege(dom, saved);
+    assert.equal($(dom, "#pasteBox").value, output);
+    assert.equal($(dom, "#periodMin").value, "11");
+
+    // 同じ結果の通知では、手で変えた内容を上書きしない。
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    receiveSiege(dom, saved);
+    assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+
+    // 計測中は取り込まない。
+    start(dom, clock);
+    receiveSiege(dom, { ...saved, savedAt: saved.savedAt + 1, rawText: "1分00秒 → ②B（3分集結）" });
+    assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+    assert.equal($(dom, "#periodMin").value, "11");
+
+    // 他のキーの通知では取り込まない。
+    $(dom, "#resetBtn").click();
+    dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: "waveTimerTabs", newValue: "[]" }));
+    assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+
+    receiveSiege(dom, { ...saved, savedAt: saved.savedAt + 2, rawText: "1分00秒 → ②B（3分集結）" });
+    assert.equal($(dom, "#pasteBox").value, "1分00秒 → ②B（3分集結）");
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), "1分00秒 → ②B（3分集結）");
+  });
+
+  test("周期とMAXは正の数のときだけ、タイムラインは空でないときだけ入れる（WAVE-081）", t => {
+    const dom = open(t);
+    setSettings(dom, { periodMin: "1", periodSec: "2", maxMin: "3", maxSec: "4" });
+    paste(dom, "0分30秒 → ①A（5分集結）");
+    const keep = () => assert.deepEqual(
+      [...["periodMin", "periodSec", "maxMin", "maxSec"].map(id => $(dom, "#" + id).value), $(dom, "#pasteBox").value],
+      ["1", "2", "3", "4", "0分30秒 → ①A（5分集結）"]);
+    receiveSiege(dom, { savedAt: 1, periodSec: 0, maxSec: null, rawText: "" });
+    keep();
+    assert.equal($(dom, "#saveStatus").textContent, "集結タイムライン計算の結果を自動取得しました");
+    receiveSiege(dom, { savedAt: 2, periodSec: -5, maxSec: 0 });
+    keep();
+    receiveSiege(dom, { savedAt: 3, periodSec: "90", maxSec: "120", rawText: 5 });
+    keep();
+    receiveSiege(dom, { savedAt: 4, periodSec: 125, maxSec: 59 });
+    assert.deepEqual(["periodMin", "periodSec", "maxMin", "maxSec"].map(id => $(dom, "#" + id).value), ["2", "5", "0", "59"]);
+    assert.equal($(dom, "#pasteBox").value, "0分30秒 → ①A（5分集結）");
+  });
+
+  test("追加したタブを表示していれば、そのタブへ取り込む（WAVE-080、WAVE-051）", t => {
+    const { output, saved } = siegeResult(t);
+    const dom = open(t);
+    addTab(dom);
+    const id = readJson(dom, "waveTimerTabs")[1].id;
+    receiveSiege(dom, saved);
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline_" + id), output);
+    assert.equal(readJson(dom, "waveTimerSettings_" + id).periodMin, "11");
+    assert.equal(dom.window.localStorage.getItem("waveTimerPastedTimeline"), null);
+    clickTab(dom, 0);
+    assert.equal($(dom, "#pasteBox").value, "");
   });
 });
