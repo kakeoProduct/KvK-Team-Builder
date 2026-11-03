@@ -228,15 +228,17 @@ web/            独立したブラウザ用補助ツール（Python処理の対�
 
 ### ブラウザ用補助ツール（web/）
 
-`web/`には、KvK当日に使う単体HTMLツール（攻城タイムライン計算、占領判定、同着カウント、
+`web/`には、KvK当日に使うHTMLツール（攻城タイムライン計算、占領判定、同着カウント、
 周期ウェーブタイマー）を置いています。これらは編成CLIとは独立しており、計算ロジックの正本は
 各HTMLです。PythonのParser、Optimizer、Validator、Exporterへは移植せず、Ruff、mypy、pytestの
 対象にも含めません。詳細は[ADR 0013](docs/adr/0013-separate-web-tools-from-python-scope.md)を
 参照してください。集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで
-動かす`tests/web/`の検査を品質ゲートで実行します（[ADR 0030](docs/adr/0030-test-web-tools-with-node-and-jsdom.md)）。
+動かす`tests/web/`の検査を品質ゲートで実行します。カウントダウン表は、集結タイムライン計算と共有する速度ペットの
+ボーナスだけを同じ方法で確かめます（[ADR 0030](docs/adr/0030-test-web-tools-with-node-and-jsdom.md)）。
 
-集結タイムライン計算と周期ウェーブタイマーは、ページ内のタブで複数の計算機とタイマーを持てます。
-周期ウェーブタイマーの各タブは、集結タイムライン計算のどのタブの結果を使うかを選んで読み込めます。
+集結タイムライン計算、周期ウェーブタイマー、カウントダウン表は、許可を得た取り込み元の版へ置き換え、
+外部サーバーとの連携を外しています（[ADR 0031](docs/adr/0031-import-upstream-web-tools.md)）。集結タイムライン計算で
+計算すると、周期ウェーブタイマーが周期、MAX、タイムラインを自動で受け取ります。
 
 各ツールの機能、入出力、計算規則、既知の不具合は
 [ブラウザ用補助ツール 要件定義書](docs/requirements/web-tools/README.md)で管理します。

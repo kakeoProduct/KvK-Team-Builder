@@ -49,7 +49,7 @@ src/kvk_team/
     web/             Djangoプロジェクト、Django NinjaのAPI、FEの配信
 frontend/            React、TypeScript、Vite（npm workspaces）
   src/api/           OpenAPIの定義と生成した型（コミットし、品質ゲートで差分を確かめる）
-web/                 既存の単体HTMLツール。置き換えが済んだものから削除する
+web/                 既存のHTMLツール（各ページと共通部品）。置き換えが済んだものから削除する
 tests/               team_building/、battle_timing/、interfaces/、構造テスト
 docs/requirements/   要件定義書
 tools/               PythonとFEに共通の品質ゲート
@@ -228,7 +228,7 @@ Interactionのために主要なUI FrameworkまたはAnimation Libraryを追加�
 
 ## ブラウザ用補助ツールの境界
 
-`web/`の単体HTMLツールは、Python側のどのコンテキストにも依存しない独立したツールです。
+`web/`のHTMLツールは、Python側のどのコンテキストにも依存しない独立したツールです。
 行軍秒数、集結時間、占領時間、周期などの計算は、新しいアプリの「戦闘タイミング」
 （`battle_timing`）へ移植し、置き換えが済んだツールから削除します（ADR 0021、#32）。
 置き換えが済むまでは各HTMLが実装の正本であり、編成のユースケースを呼び出しません。
@@ -241,12 +241,15 @@ Interactionのために主要なUI FrameworkまたはAnimation Libraryを追加�
 判断します。
 
 集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで読み込み、画面と同じ
-操作で動かす`tests/web/`の検査で確かめます。`tools/check_web.py`が`python tools/check.py`の1項目として
+操作で動かす`tests/web/`の検査で確かめます。カウントダウン表は、集結タイムライン計算と共有する速度ペットの
+ボーナスだけを同じ方法で確かめます（ADR 0031）。`tools/check_web.py`が`python tools/check.py`の1項目として
 実行し、Node.jsまたはjsdomがなければ入れ方を示して失敗します。Node.jsの版は`.node-version`、jsdomの
 版は`package.json`と`package-lock.json`で固定します（ADR 0030）。
 
-2つのツールは同じoriginのlocalStorageでつながります。周期ウェーブタイマーは集結タイムライン計算の
-`siegeCalcTabs`を読むだけで、書き換えません。
+ツールどうしは同じoriginのlocalStorageでつながります。集結タイムライン計算は計算のたびに
+`siegeTimelineForWaveTimer`へ結果を書き、周期ウェーブタイマーはそれを読むだけで、書き換えません。
+速度ペットのボーナスは、集結タイムライン計算とカウントダウン表が共通部品`web/pet-bonus.js`で
+同じキーに保存します（ADR 0031）。
 
 ## エラー方針
 

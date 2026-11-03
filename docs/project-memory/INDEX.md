@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [取り込み元の補助ツールでweb/を置き換え、仕様書と検査を合わせる](sessions/2026/2026-11-03T091439Z-761423b3-a6c5-4cd7-bb35-04f5d82034b4.md) | current | requirements, web-tools | 31 |
 | [リリースのレビューのShouldへの対応（計算元の選択と要件の補記）](sessions/2026/2026-10-25T112118Z-source-select-and-docs.md) | current | review, web-tools | 8 |
 | [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |
 | [集結タイムライン計算と周期ウェーブタイマーのタブ化、周期計算の修正、jsdomの検査](sessions/2026/2026-10-25T085809Z-siege-wave-tabs.md) | current | ci, web-tools | 33 |

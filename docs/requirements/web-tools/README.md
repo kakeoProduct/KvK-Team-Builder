@@ -1,6 +1,6 @@
 # ブラウザ用補助ツール 要件定義書
 
-本書は、`web/`に置くKvK当日向けの単体HTMLツールについて、利用者に提供する機能、入出力、
+本書は、`web/`に置くKvK当日向けのHTMLツール（各ページと共通部品）について、利用者に提供する機能、入出力、
 計算規則、保存、画面の要件を定める。ツールの修正や追加は、本書を先に更新してから行う。
 
 ## 1. 位置付け
@@ -18,16 +18,24 @@
 |---|---|---|---|
 | KvK ツール一覧 | `web/index.html` | 稼働中 | 本書の4章 |
 | 集結タイムライン計算 | `web/攻城タイムライン計算.html` | 稼働中 | [siege-timeline.md](siege-timeline.md) |
-| KvK同着スタート カウントアップ表 | `web/王城到着同期カウントアップ.html` | 稼働中 | [sync-start-tables.md](sync-start-tables.md) |
-| KvK同着スタート カウントダウン表 | `web/KvK同着スタート カウントダウン表.html` | 稼働中 | [sync-start-tables.md](sync-start-tables.md) |
+| KvK同着スタート カウントアップ表 | `web/王城到着同期カウントアップ.html` | メニューに出さない | [sync-start-tables.md](sync-start-tables.md) |
+| KvK同着スタート カウントダウン表 | `web/KvK同着スタート カウントダウン表.html` | 稼働中 | [sync-start-countdown.md](sync-start-countdown.md) |
 | KvK占領戦 勝利判定ツール | `web/KvK占領判定.html` | 稼働中 | [occupation-judge.md](occupation-judge.md) |
 | 周期ウェーブタイマー | `web/周期ウェーブタイマー.html` | 稼働中 | [wave-timer.md](wave-timer.md) |
-| 音声アナウンス付きストップウォッチ | `web/音声アナウンス付きストップウォッチ.html` | 工事中 | [voice-stopwatch.md](voice-stopwatch.md) |
+| 音声アナウンス付きストップウォッチ | `web/音声アナウンス付きストップウォッチ.html` | 工事中、メニューに出さない | [voice-stopwatch.md](voice-stopwatch.md) |
+| 速度ペットの共通部品 | `web/pet-bonus.js` | 稼働中 | [siege-timeline.md](siege-timeline.md)のSIEGE-009、SIEGE-046 |
 
-ツール間の連携は1つだけである。集結タイムライン計算の1周目の出力（末尾の`周期：`行を
-含む）を、周期ウェーブタイマーが読む。読み方は、貼り付け欄への貼り付けと、集結タイムライン計算の
-保存データからの読み込み（WAVE-070〜WAVE-076）の2つである。どちらかの出力書式、保存形式、
-解析規則を変える場合は、両方の要件を同じ変更で更新する。
+集結タイムライン計算、周期ウェーブタイマー、カウントダウン表は、取り込み元の版へ置き換えた
+（2026-11-03、ADR 0031）。取り込み元の外部サーバーとの連携は外している。
+
+ツール間の連携は次の2つである。どちらかの出力書式、保存形式、解析規則を変える場合は、関係する
+要件を同じ変更で更新する。
+
+- 集結タイムライン計算の1周目の出力を、周期ウェーブタイマーが読む。読み方は、計算のたびに保存する
+  結果（SIEGE-045）の自動取り込み（WAVE-080、WAVE-081）と、貼り付け欄への貼り付け（WAVE-030〜WAVE-032）の
+  2つである
+- 集結タイムライン計算とカウントダウン表は、速度ペットのボーナス（SIEGE-046）を共通部品
+  `web/pet-bonus.js`で同じキーに保存して使う
 
 ## 3. 文書の書き方
 
@@ -46,10 +54,10 @@
 | 種類 | 形式 | 例 |
 |---|---|---|
 | 要件 | `{接頭辞}-{3桁の番号}` | `SIEGE-012` |
-| 既知の不具合と差異 | `KI-{接頭辞}-{2桁の番号}` | `KI-WAVE-03` |
+| 既知の不具合と差異 | `KI-{接頭辞}-{2桁の番号}` | `KI-WAVE-04` |
 | 未決事項 | `Q-{接頭辞}-{2桁の番号}` | `Q-OCC-01` |
 
-接頭辞は`COM`（共通）、`SIEGE`、`SYNC`、`OCC`、`WAVE`、`VOICE`とする。IDは再利用せず、
+接頭辞は`COM`（共通）、`SIEGE`、`SYNC`（カウントアップ表）、`CDOWN`（カウントダウン表）、`OCC`、`WAVE`、`VOICE`とする。IDは再利用せず、
 番号の欠けを詰めない。修正のコミット、Issue、Pull Requestでは対象のIDを示す。
 
 ### 3.3 現行仕様の記録について
@@ -64,7 +72,7 @@
 
 | ID | 要件 |
 |---|---|
-| COM-001 | 各ツールは1つのHTMLファイルで完結し、外部ライブラリ、サーバー、ビルドを使わずにブラウザで動く |
+| COM-001 | 各ツールは、そのHTMLファイルと、`web/`に置く共通部品（`web/pet-bonus.js`）だけでブラウザで動き、外部ライブラリ、サーバー、ビルドを使わない |
 | COM-002 | 各ツールは`web/`直下に置き、GitHub Pagesの`https://kakeoproduct.github.io/KvK-Team-Builder/web/`から利用できる |
 | COM-003 | 日本語のファイル名を使ってよい。ファイル名を変える場合は、メニュー、サイドバー、外部から共有されたURLへの影響を確認する |
 
@@ -72,16 +80,16 @@
 
 | ID | 要件 |
 |---|---|
-| COM-010 | `web/index.html`は「KvK ツール一覧」として、各ツールのアイコン、表示名、1行の説明をカードで並べ、クリックで開ける |
-| COM-011 | 工事中のツールのカードには「工事中」の表示を付ける |
+| COM-010 | `web/index.html`は「KvK ツール一覧」として、各ツールのアイコン、表示名、1行の説明をカードで並べ、クリックで開ける。カードは「攻城」（集結タイムライン計算、周期ウェーブタイマー）と「KvK」（カウントダウン表、占領判定）の見出しで分ける |
+| COM-012 | カウントアップ表と音声アナウンス付きストップウォッチは、メニューとサイドバーに出さない。ファイルは残し、直接開けば使える |
 
 ### 4.3 共通サイドバー
 
 | ID | 要件 |
 |---|---|
 | COM-020 | ページの`<title>`、`<h1>`、メニューのカード名、サイドバーの表示名は同じ文言にする |
-| COM-021 | すべてのページに、メニューと全ツールへ移動できる共通サイドバーを表示し、表示中のページを強調する |
-| COM-022 | サイドバーは`web/work/inject_sidebar.py`で各HTMLの`<!-- ks-sidebar:start -->`と`<!-- ks-sidebar:end -->`の間へ挿入する。ツールの追加、削除、改名では同Scriptの`TOOLS`を更新して再実行し、手で編集しない |
+| COM-021 | すべてのページに、メニューとCOM-010の各ツールへ移動できる共通サイドバーを表示し、表示中のページを強調する。ツールはCOM-010と同じ見出しで分け、見出しは折りたたんだときと画面幅760px以下では隠す。COM-012のページは、サイドバーに自分の項目がないため強調しない |
+| COM-022 | サイドバーは`web/work/inject_sidebar.py`で各HTMLの`<!-- ks-sidebar:start -->`と`<!-- ks-sidebar:end -->`の間へ挿入する。ツールの追加、削除、改名、メニューからの出し入れでは同Scriptの`NAV_GROUPS`と`HIDDEN_TOOLS`を更新して再実行し、手で編集しない |
 | COM-023 | 画面幅が760pxを超える場合は左側に幅220pxで固定表示し、折りたたむと幅56pxのアイコンだけの表示にする |
 | COM-024 | 画面幅が760px以下の場合は上部の横スクロールできるバーとして表示し、折りたたむと隠して左上の「☰」で再表示する |
 | COM-025 | 折りたたみの状態をlocalStorageのキー`ksSidebarCollapsed`へ保存し、ページを移動しても維持する |
@@ -100,20 +108,23 @@
 |---|---|
 | COM-040 | 入力値はブラウザのlocalStorageへ自動で保存し、同じブラウザで次回開いたときに復元する。別の端末やブラウザとは共有しない |
 | COM-041 | localStorageを使えない環境でも、保存以外の機能は動く |
-| COM-042 | ツールごとに別のキーを使い、他のツールの保存データを書き換えない。他のツールの保存データを読むのは、周期ウェーブタイマーが集結タイムライン計算の`siegeCalcTabs`を読む場合（WAVE-070〜WAVE-074）だけとする |
+| COM-042 | ツールごとに別のキーを使い、他のツールの保存データを書き換えない。例外は、周期ウェーブタイマーが集結タイムライン計算の`siegeTimelineForWaveTimer`を読む場合（WAVE-080）と、集結タイムライン計算とカウントダウン表が速度ペットのボーナス`ksMarchPetBonus`を共有する場合（SIEGE-046）だけとする |
 
 使用中のキーは次のとおりである。
 
 | キー | ツール |
 |---|---|
 | `ksSidebarCollapsed` | 共通サイドバー |
-| `siegeCalcTabs` | 集結タイムライン計算 |
-| `siegeCalcState` | 集結タイムライン計算（旧形式。移行元として読むだけ。SIEGE-042） |
+| `siegeCalcState` | 集結タイムライン計算（SIEGE-040） |
+| `siegeTimelineForWaveTimer` | 集結タイムライン計算が書き、周期ウェーブタイマーが読む（SIEGE-045、WAVE-080） |
+| `ksMarchPetBonus` | 速度ペットの共通部品。集結タイムライン計算とカウントダウン表（SIEGE-046） |
 | `kvkCountupRosterState` | KvK同着スタート カウントアップ表 |
-| `kvkCountdownRosterState` | KvK同着スタート カウントダウン表 |
+| `kvkCountdownRosterStateV2`、`kvkCountdownRosterStateV2_{id}`、`kvkCountdownTabs`、`kvkCountdownCurrentTab`、`kvkCountdownMaxSec` | KvK同着スタート カウントダウン表（CDOWN-050〜CDOWN-052） |
 | `kvkOccupationState` | KvK占領戦 勝利判定ツール |
-| `waveTimerTabs` | 周期ウェーブタイマー |
-| `waveTimerSettings`、`waveTimerPastedTimeline` | 周期ウェーブタイマー（旧形式。移行元として読むだけ。WAVE-052） |
+| `waveTimerTabs`、`waveTimerCurrentTab`、`waveTimerSettings`、`waveTimerPastedTimeline`、`waveTimerSideHidden`と、その`_{id}`付きのキー | 周期ウェーブタイマー（WAVE-050〜WAVE-052） |
+
+置き換える前の版が使っていた`siegeCalcTabs`と`kvkCountdownRosterState`は、どのツールも読まない
+（KI-SIEGE-15、KI-CDOWN-08）。`waveTimerTabs`は置き換える前と形式が違う（KI-WAVE-19）。
 
 ### 4.6 品質
 
@@ -123,22 +134,23 @@
 | COM-051 | コピーなどの操作は成功と失敗を区別して知らせる |
 | COM-052 | 画面の新規作成と変更では`AGENTS.md`の「Web UIのデザイン基準」を適用し、状態を色だけで区別せず、Keyboard操作、Focus表示、文字拡大、十分なContrastに対応する |
 | COM-053 | 変更したツールは、Desktop幅とMobile幅のブラウザで主要な操作を確認する。`web/`はRuff、mypy、pytestの対象外である |
-| COM-054 | 集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで読み込んで操作する`tests/web/`の検査で、計算規則、タブ、保存、読み込みを確かめる。この検査は`python tools/check.py`とCIで実行する（ADR 0030） |
+| COM-054 | 集結タイムライン計算と周期ウェーブタイマーは、実物のHTMLをNode.jsとjsdomで読み込んで操作する`tests/web/`の検査で、計算規則、保存、自動取り込み、進行表示、保存できない環境での動作（COM-041）を確かめる。カウントダウン表は、集結タイムライン計算と共有する速度ペットのボーナス（SIEGE-046）だけを確かめる。この検査は`python tools/check.py`とCIで実行する（ADR 0030、ADR 0031） |
 
 ## 5. 共通の既知の不具合
 
 | ID | 内容 | 該当 |
 |---|---|---|
-| KI-COM-01 | 利用者の入力（名前、同盟名、貼り付けた見出し）を`innerHTML`へエスケープせずに埋め込んでおり、COM-050を満たさない | KI-SYNC-04、KI-OCC-04、KI-WAVE-11 |
-| KI-COM-02 | コピーの失敗を利用者へ知らせないツールがあり、COM-051を満たさない | KI-SYNC-06、KI-SIEGE-11 |
-| KI-COM-03 | COM-052のアクセシビリティ要件を満たしているかは未確認である | 全ツール |
-| KI-COM-04 | メニューのカードは`web/index.html`へ手で書いており、サイドバーの`TOOLS`と二重管理になっている | COM-020 |
+| KI-COM-01 | 利用者の入力（名前、同盟名、貼り付けた見出し）を`innerHTML`へエスケープせずに埋め込んでいるツールがあり、COM-050を満たさない | KI-SYNC-04、KI-OCC-04、KI-WAVE-11 |
+| KI-COM-02 | コピーの失敗を利用者へ知らせないツールがあり、COM-051を満たさない | KI-SYNC-06、KI-CDOWN-07、KI-SIEGE-11 |
+| KI-COM-03 | COM-052のアクセシビリティ要件を満たしているかは未確認である。タブの「×」をキーボードで操作できないことは確認した | 全ツール、KI-WAVE-29、KI-CDOWN-12 |
+| KI-COM-04 | メニューのカードは`web/index.html`へ手で書いており、サイドバーの`NAV_GROUPS`と二重管理になっている | COM-020 |
 
 ## 6. 作成者の仮定
 
 - COM-002のURLは、公開Repository`KvK-Team-Builder`の実際の公開先である（2026-10-25に確認）。
   ADR 0026は同じアカウント（`drrrkawasaki`）の下に作る前提で書かれていたが、公開先は`kakeoproduct`
   になったため、ADR 0026へ訂正の注記を加えた
+- メニューとサイドバーの見出しは、取り込み元ではイベント名だったが、伏せる語のため「攻城」とした（ADR 0026、ADR 0031）
 - CSSクラスと保存キーの接頭辞`ks`は、単独では検索の手掛かりにならず、保存キーを変えるとサイドバーの
   開閉状態が消えるため残す（ADR 0026）
 

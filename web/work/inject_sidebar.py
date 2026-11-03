@@ -15,15 +15,27 @@ from pathlib import Path
 
 FOLDER = Path(__file__).resolve().parent.parent
 
-TOOLS = [
-    ("index.html", "🏠", "メニュー"),
-    ("攻城タイムライン計算.html", "🐉", "集結タイムライン計算"),
+HOME = ("index.html", "🏠", "メニュー")
+
+# メニュー（サイドバーとindex.htmlのカード）は用途ごとにグループ分けする。
+NAV_GROUPS = [
+    ("攻城", [
+        ("攻城タイムライン計算.html", "🐉", "集結タイムライン計算"),
+        ("周期ウェーブタイマー.html", "🌊", "周期ウェーブタイマー"),
+    ]),
+    ("KvK", [
+        ("KvK同着スタート カウントダウン表.html", "⏲️", "KvK同着スタート カウントダウン表"),
+        ("KvK占領判定.html", "🏳️", "KvK占領戦 勝利判定ツール"),
+    ]),
+]
+
+# メニューに出さないページ。ファイルは残し、サイドバーだけを注入する。
+HIDDEN_TOOLS = [
     ("王城到着同期カウントアップ.html", "⏱️", "KvK同着スタート カウントアップ表"),
-    ("KvK同着スタート カウントダウン表.html", "⏲️", "KvK同着スタート カウントダウン表"),
-    ("KvK占領判定.html", "🏳️", "KvK占領戦 勝利判定ツール"),
-    ("周期ウェーブタイマー.html", "🌊", "周期ウェーブタイマー"),
     ("音声アナウンス付きストップウォッチ.html", "🔊", "音声ストップウォッチ（工事中）"),
 ]
+
+TOOLS = [HOME] + [item for _, items in NAV_GROUPS for item in items] + HIDDEN_TOOLS
 
 MARK_START = "<!-- ks-sidebar:start -->"
 MARK_END = "<!-- ks-sidebar:end -->"
@@ -32,14 +44,17 @@ VIEWPORT_TAG = '<meta name="viewport" content="width=device-width, initial-scale
 
 
 def build_sidebar(current_file):
-    links = []
-    for fname, icon, label in TOOLS:
-        active = fname == current_file
-        cls = "ks-link ks-active" if active else "ks-link"
-        links.append(
+    def link_html(fname, icon, label):
+        cls = "ks-link ks-active" if fname == current_file else "ks-link"
+        return (
             f'<a href="{fname}" class="{cls}" title="{label}">'
             f'<span class="ks-icon">{icon}</span><span class="ks-label">{label}</span></a>'
         )
+
+    links = [link_html(*HOME)]
+    for group_name, items in NAV_GROUPS:
+        links.append(f'<div class="ks-group">{group_name}</div>')
+        links.extend(link_html(*item) for item in items)
 
     sidebar = f'''{MARK_START}
 <style>
@@ -66,6 +81,12 @@ def build_sidebar(current_file):
   .ks-sidebar .ks-link .ks-icon {{ flex: 0 0 auto; width: 18px; text-align: center; margin-top: 1px; }}
   .ks-sidebar .ks-link .ks-label {{ white-space: normal; overflow-wrap: break-word; }}
   .ks-sidebar .ks-link.ks-active {{ background: #3a4a63; color: #fff; font-weight: bold; }}
+  .ks-sidebar .ks-group {{
+    color: #6b7993; font-size: 10px; font-weight: bold; letter-spacing: 0.05em;
+    text-transform: uppercase; padding: 10px 10px 4px; white-space: nowrap;
+  }}
+  .ks-sidebar .ks-group:first-of-type {{ padding-top: 0; }}
+  body.ks-collapsed .ks-sidebar .ks-group {{ display: none; }}
 
   .ks-open-btn {{
     display: none; position: fixed; top: 14px; left: 14px; z-index: 100001;
@@ -104,6 +125,7 @@ def build_sidebar(current_file):
       padding: 6px 10px; font-size: 12px;
     }}
     .ks-sidebar .ks-label {{ display: inline !important; }}
+    .ks-sidebar .ks-group {{ display: none; }}
     body {{ margin-left: 0 !important; padding-top: 56px !important; }}
     body.ks-collapsed .ks-sidebar {{ transform: translateY(-100%); width: 100% !important; }}
     body.ks-collapsed {{ margin-left: 0 !important; padding-top: 0 !important; }}
