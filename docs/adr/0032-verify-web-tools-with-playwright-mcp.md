@@ -69,12 +69,13 @@ Dev ContainerはPythonの最小イメージで、ブラウザの共有ライブ�
 ### Containerのseccompを緩めてsandboxを使う
 
 `devcontainer.json`で、user namespaceを許すseccompを渡せばsandboxを使えるが、ブラウザ以外の
-プロセスにも緩和が及ぶ。利用者は採らなかった。
+プロセスにも緩和が及ぶ。利用者はContainerの制限を緩めない方式を選んだ（2026-11-03）。
 
 ### MCPの登録を共有せず、利用者ごとのローカル設定にする
 
 `--no-sandbox`の判断を利用者ごとに任せられるが、CodexとClaude Codeで設定がずれ、AIエージェントが
-同じ手順で確かめられなくなる。利用者は採らなかった。
+同じ手順で確かめられなくなる。Claude Codeでは、Hookと`permissions.deny`が共有の設定にあるため、登録を
+分けても安全性は上がらない。採らなかった（作成者の判断）。
 
 ### Chrome DevTools MCP、またはChromeの拡張機能（Claude in Chrome）
 
@@ -108,12 +109,15 @@ Playwrightの版と結び付く。Debianの`chromium`ならaptで共有ライブ
 - Playwright MCPの版を上げるときは、Toolの追加と改名、`filename`や`paths`に当たる引数、`_meta`のようにサーバーの共通
   処理が読む引数、ダウンロードのような引数なしの書き込みの変更を確かめる。拒否するToolの名前と、ファイルにつながる引数名は、インストールした版の一覧と
   テストで照合する
-- Hookと`permissions.deny`の変更は、Claude Codeの新しいSessionから有効になる。実機での発火は、新しいSessionで確かめるまで
-  未確認である。確かめたのはHook Scriptへ入力を直接与えた判定と、設定の値までである。確かめる手順は次の4つで、確かめた後に
-  この項を日付付きの確認済みの文へ置き換える
-  - `filename`に`page.png`を渡した`browser_take_screenshot`が拒否される
-  - 名前なしの画面写真と`browser_snapshot`が通る（`tool_input`が来ない呼び出しまで拒否していないことを見る）
-  - `browser_drop`、`browser_file_upload`、`browser_run_code_unsafe`が使えない
-  - `_meta`を付けた呼び出しが拒否されるか、Claude Codeが転送しない
+- Hookと`permissions.deny`の変更は、Claude Codeの新しいSessionから有効になる。実機での発火は、変更後の新しい主Session
+  （Claude Code 2.1.317、Playwright MCP 0.0.83）で、Playwright MCPのToolの呼び出しと一覧により次のとおり確かめた（2026-11-04）
+  - `filename`に`page.png`を渡した`browser_take_screenshot`は`restrict_browser_files.py`が拒否し、ファイルは作られなかった
+  - 名前なしの画面写真は`tmp/playwright-mcp/`へ保存され、引数なしの`browser_snapshot`も通った
+  - `browser_drop`、`browser_file_upload`、`browser_run_code_unsafe`は、インストールした版の定義では既定で一覧に出る
+    Tool（`capability: "core"`で`skillOnly`なし）だが、Claude CodeのToolの一覧に出ず、ToolSearchの指定でも見つからなかった。この項は
+    Toolの呼び出しではなく一覧で確かめ、実行して試してはいない
+  - `_meta.cwd`へ別のディレクトリを渡した`browser_take_screenshot`は、`filename`が`tmp/playwright-mcp/`の下でも
+    `restrict_browser_files.py`が拒否し、そのディレクトリと`tmp/playwright-mcp/`のどちらにも出力されなかった。Hookが先に
+    拒否するため、Claude Codeが`_meta`をサーバーへ転送するかどうかは確かめていない
 - ブラウザの幅を変えてもタッチ操作は再現しない。`--isolated`のため、ブラウザを閉じるとlocalStorageも消える。
   Toolの呼び出しが1時間ないとブラウザは閉じる（`--idle-timeout`の既定）

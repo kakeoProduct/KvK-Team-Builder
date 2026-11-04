@@ -5,7 +5,8 @@ Playwright MCPの`filename`は作業ツリーの内側なら通るため、`brow
 任意の内容で上書きできる。これらを書き換えると、Git保護と`permissions.deny`が無効になる
 （ADR 0032）。上流に名前付きの出力を限る設定はないため、ここで主Sessionを含めて拒否する。
 `tool_input`の`_meta.cwd`は`filename`の解決の基準を変えるため、値にかかわらず拒否する。MCPの
-仕様では`_meta`は`arguments`の外に置く。Claude Codeの実際の扱いはADR 0032の確認の対象である。
+仕様では`_meta`は`arguments`の外に置く。Claude Codeでの確認の結果と残る未確認の点は、
+ADR 0032の「影響」を見る。
 
 `.claude/settings.json`のmatcherは`mcp__playwright__.*`だけをこのHookへ渡す。`filename`がない
 呼び出しは、サーバーが`--output-dir`へ書くため通す。解析できない入力は拒否する。Hookが例外で
