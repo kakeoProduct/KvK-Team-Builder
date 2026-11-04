@@ -13,6 +13,7 @@ HOOK_DIRECTORY = PROJECT_ROOT / "tools" / "hooks"
 GIT_GUARD_SCRIPT = HOOK_DIRECTORY / "block_dangerous_git.py"
 MEMORY_HOOK_SCRIPT = HOOK_DIRECTORY / "project_memory_hook.py"
 READ_ONLY_AGENT_SCRIPT = HOOK_DIRECTORY / "enforce_read_only_agent.py"
+BROWSER_FILE_SCRIPT = HOOK_DIRECTORY / "restrict_browser_files.py"
 PROJECT_MEMORY_SCRIPT = (
     PROJECT_ROOT
     / ".agents"
@@ -183,6 +184,8 @@ def test_read_only_agent_denies_writes_in_any_permission_mode() -> None:
         ("PowerShell", {"command": "New-Item x"}),
         ("Monitor", {"command": "touch x"}),
         ("mcp__example__write", {}),
+        # ブラウザ操作は画面写真を書き得るため、レビュー担当には使わせない（ADR 0032）。
+        ("mcp__playwright__browser_navigate", {"url": "http://127.0.0.1:8765/"}),
     ):
         decision = _read_only_decision(_tool_payload(tool_name, tool_input))
         assert decision is not None and decision[0] == "deny", tool_name
@@ -312,6 +315,7 @@ def test_claude_settings_register_repository_hooks() -> None:
         "NotebookEdit",
         "Agent",
         "mcp__example__write",
+        "mcp__playwright__browser_navigate",
     ):
         assert matcher.fullmatch(tool_name), tool_name
     for tool_name in (
@@ -342,7 +346,7 @@ def test_claude_settings_register_repository_hooks() -> None:
 
 
 def test_claude_settings_deny_generated_files_and_secrets() -> None:
-    """生成物の直接編集と秘密情報ファイルの読み取りを権限規則で拒否する。"""
+    """生成物の直接編集、秘密情報の読み取り、Hookを迂回するToolを権限規則で拒否する。"""
 
     settings = json.loads(CLAUDE_SETTINGS_PATH.read_text(encoding="utf-8"))
     deny = set(settings["permissions"]["deny"])
@@ -351,9 +355,175 @@ def test_claude_settings_deny_generated_files_and_secrets() -> None:
         "Edit(.claude/agents/**)",
         "Read(.env)",
         "Read(.env.*)",
+        # Node.jsのプロセスでコードを実行でき、Bash Toolを通るGit保護と`.env`の拒否を迂回する（ADR 0032）。
+        "mcp__playwright__browser_run_code_unsafe",
+        # 作業ツリーのファイルをページへ渡し、`.env`の読み取りの拒否を迂回する（ADR 0032）。
+        "mcp__playwright__browser_drop",
+        "mcp__playwright__browser_file_upload",
     } <= deny
     # 同期Scriptと品質ゲートが動かなくならないよう、実行系の規則は加えない。
     assert not any(rule.startswith("Bash(") for rule in deny)
+
+
+def _browser_file_decision(payload: object) -> tuple[str, str] | None:
+    """ブラウザの出力先のHook判定と理由を返す。許可時はNoneを返す。"""
+
+    completed = _run_hook(BROWSER_FILE_SCRIPT, payload)
+    assert completed.returncode == 0, completed.stderr
+    if completed.stdout == "":
+        return None
+    output = json.loads(completed.stdout)["hookSpecificOutput"]
+    return output["permissionDecision"], output["permissionDecisionReason"]
+
+
+def _browser_tool(tool_input: object) -> dict[str, object]:
+    """主SessionのPlaywright MCPのTool呼び出しを作る。"""
+
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__playwright__browser_evaluate",
+        "tool_input": tool_input,
+    }
+
+
+def test_browser_tools_may_write_only_under_their_output_directory() -> None:
+    """`filename`を持つToolは、名前の有無にかかわらず`tmp/playwright-mcp/`の外へ書けない。"""
+
+    for tool_input in (
+        {},
+        {"filename": "tmp/playwright-mcp/page.png"},
+        {"filename": "tmp/playwright-mcp/2026/page.yml"},
+        {"filename": "tmp/playwright-mcp/画面.png"},
+    ):
+        assert _browser_file_decision(_browser_tool(tool_input)) is None, tool_input
+
+    for filename in (
+        "tools/hooks/block_dangerous_git.py",
+        ".claude/settings.json",
+        ".git/config",
+        "page.png",
+        "tmp/page.png",
+        "tmp/playwright-mcp",
+        "tmp/playwright-mcp/",
+        "tmp/playwright-mcp-other/page.png",
+        "tmp/playwright-mcp/../../.mcp.json",
+        "tmp/playwright-mcp/a/../../page.png",
+        "./tmp/playwright-mcp/page.png",
+        "tmp//playwright-mcp/page.png",
+        "tmp/playwright-mcp/./page.png",
+        "tmp/playwright-mcp//page.png",
+        "tmp/playwright-mcp/..\\..\\page.png",
+        "tmp\\playwright-mcp\\..\\page.png",
+        "/workspaces/KvK-Team-Builder/tmp/playwright-mcp/page.png",
+        "C:/tmp/playwright-mcp/page.png",
+        "tmp/playwright-mcp/C:page.png",
+        "",
+    ):
+        decision = _browser_file_decision(_browser_tool({"filename": filename}))
+        assert decision is not None and decision[0] == "deny", filename
+        assert "tmp/playwright-mcp/" in decision[1]
+
+
+def test_browser_tools_may_not_move_the_base_of_filename() -> None:
+    """`_meta.cwd`は`filename`の解決の基準を変えるため、値にかかわらず通さない（ADR 0032）。"""
+
+    for meta in ({"cwd": "/workspaces/KvK-Team-Builder/tests"}, {"raw": True}, {}):
+        for tool_input in (
+            {"filename": "tmp/playwright-mcp/test_x.py", "_meta": meta},
+            {"_meta": meta},
+        ):
+            decision = _browser_file_decision(_browser_tool(tool_input))
+            assert decision is not None and decision[0] == "deny", tool_input
+            assert "_meta" in decision[1]
+
+
+def _run_browser_file_hook_with_bytes(
+    body: bytes,
+) -> subprocess.CompletedProcess[bytes]:
+    """既定の文字コードがUTF-8でない環境で、バイト列をそのままHookへ渡す。"""
+
+    return subprocess.run(
+        [sys.executable, str(BROWSER_FILE_SCRIPT)],
+        input=body,
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONUTF8": "0", "PYTHONIOENCODING": "cp1252"},
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_browser_file_hook_reads_utf8_regardless_of_the_console() -> None:
+    """日本語の名前をUTF-8のバイト列から読み、拒否のJSONはASCIIで出力する。"""
+
+    def body(filename: str) -> bytes:
+        return json.dumps(
+            _browser_tool({"filename": filename}), ensure_ascii=False
+        ).encode("utf-8")
+
+    allowed = _run_browser_file_hook_with_bytes(body("tmp/playwright-mcp/画面.png"))
+    assert (allowed.returncode, allowed.stdout) == (0, b"")
+
+    denied = _run_browser_file_hook_with_bytes(body("画面.png"))
+    assert denied.returncode == 0
+    assert denied.stdout.isascii()
+    output = json.loads(denied.stdout)["hookSpecificOutput"]
+    assert output["permissionDecision"] == "deny"
+
+
+def test_browser_file_hook_denies_unreadable_bytes() -> None:
+    """例外で終わるとClaude CodeはToolを通すため、読めない入力も拒否として答える。"""
+
+    depth = 200_000
+    for body in (
+        b"not json",
+        b"\xff\xfe",
+        ('{"tool_input":{"x":' + "[" * depth + "]" * depth + "}}").encode("ascii"),
+    ):
+        completed = _run_browser_file_hook_with_bytes(body)
+        assert completed.returncode == 0, body[:20]
+        output = json.loads(completed.stdout)["hookSpecificOutput"]
+        assert output["permissionDecision"] == "deny", body[:20]
+
+
+def test_browser_file_hook_denies_input_it_cannot_understand() -> None:
+    """安全策のHookは、解析できない入力と型の違う`filename`を通さない。"""
+
+    for payload in (
+        ["not", "an", "object"],
+        {"tool_name": "mcp__playwright__browser_snapshot"},
+        _browser_tool("filename"),
+        _browser_tool({"filename": None}),
+        _browser_tool({"filename": ["tmp/playwright-mcp/page.png"]}),
+    ):
+        decision = _browser_file_decision(payload)
+        assert decision is not None and decision[0] == "deny", payload
+
+
+def test_browser_file_hook_is_registered_for_every_session_and_playwright_tool() -> (
+    None
+):
+    """読み取り専用の宣言のToolも含め、主SessionのPlaywright MCPの全Toolを検査する。"""
+
+    settings = json.loads(CLAUDE_SETTINGS_PATH.read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for entry in settings["hooks"]["PreToolUse"]
+        if any(
+            hook["args"]
+            == ["${CLAUDE_PROJECT_DIR}/tools/hooks/restrict_browser_files.py"]
+            for hook in entry["hooks"]
+        )
+    ]
+    assert len(entries) == 1
+    matcher = re.compile(entries[0]["matcher"])
+    for tool_name in (
+        "mcp__playwright__browser_evaluate",
+        "mcp__playwright__browser_network_request",
+        "mcp__playwright__browser_take_screenshot",
+    ):
+        assert matcher.fullmatch(tool_name), tool_name
+    for tool_name in ("Bash", "Read", "mcp__example__write"):
+        assert not matcher.fullmatch(tool_name), tool_name
 
 
 def test_worktree_directories_are_ignored() -> None:

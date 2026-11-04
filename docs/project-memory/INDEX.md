@@ -14,6 +14,8 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [Playwright MCPのToolによるHookと拒否の迂回を塞ぐ](sessions/2026/2026-11-04T142434Z-20261104t132840z-c0293711.md) | current | ai-harness, dev-container, web-tools | 12 |
+| [Playwright MCPでweb/をブラウザ操作して確かめる環境を加える](sessions/2026/2026-11-04T011359Z-57e06d37-6cd8-4603-857a-6eab57ff4f0b.md) | current | ai-harness, dev-container, web-tools | 14 |
 | [取り込み元の補助ツールでweb/を置き換え、仕様書と検査を合わせる](sessions/2026/2026-11-03T091439Z-761423b3-a6c5-4cd7-bb35-04f5d82034b4.md) | current | requirements, web-tools | 31 |
 | [リリースのレビューのShouldへの対応（計算元の選択と要件の補記）](sessions/2026/2026-10-25T112118Z-source-select-and-docs.md) | current | review, web-tools | 8 |
 | [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |

@@ -1,9 +1,10 @@
 {
   "name": "kvk-team-builder",
   "private": true,
-  "description": "web/のブラウザ用補助ツールを実物のHTMLで検査するための開発依存（ADR 0030）",
+  "description": "web/のブラウザ用補助ツールを実物のHTMLで検査し、ブラウザで操作して確かめるための開発依存（ADR 0030、ADR 0032）",
   "license": "MIT",
   "devDependencies": {
+    "@playwright/mcp": "0.0.83",
     "jsdom": "25.0.1"
   }
 }

@@ -28,8 +28,8 @@ docker run --rm hello-world
 ```
 
 同期Folderを避けた場所へRepositoryをcloneし、VS Codeで開いてからコマンドパレットの
-`Dev Containers: Reopen in Container`を実行します。ContainerにはNode.jsとnpmが入っており、
-初回作成時に`.[dev]`と、`npm ci`でjsdomを自動で導入します。Container内のTerminalで次を実行し、
+`Dev Containers: Reopen in Container`を実行します。ContainerにはNode.js、npm、Chromium、日本語と絵文字の
+フォントが入っており、初回作成時に`.[dev]`と、`npm ci`でjsdomとPlaywright MCPを自動で導入します。Container内のTerminalで次を実行し、
 開発環境を確認してください。
 
 ```text
@@ -130,6 +130,48 @@ python tools/preview_output.py
 入力、出力先、最適化の制限時間を変更できます。CP-SATは制限時間内の探索結果を返すため、
 差分は確認材料として扱い、合否は自己チェックと品質ゲートで判断します。
 
+### ブラウザでの確認
+
+変更したツールは、`tests/web/`の検査に加えて、Desktop幅とMobile幅のブラウザで主要な操作を
+確かめます（COM-053）。Dev Containerでは、AIエージェントがPlaywright MCPでブラウザを操作できます
+（ADR 0032）。Repositoryの最上位（Session用worktreeではそのworktreeの最上位）で`web/`を配信します。
+
+```text
+python -m http.server 8765 --bind 127.0.0.1 --directory web
+```
+
+ポート8765が使用中なら、変更したファイルと、確かめるページが読むファイルを配信元から取得し、作業ツリーの内容と
+比べます。すべて一致すればそのサーバーで続けます。一致しないか取得できなければ共用せず、
+終わるのを待つか、手元のブラウザで確かめ、どちらもできなければ未実施として報告します。手元のブラウザなら
+別のポートで配信してかまいませんが、Playwright MCPからは開けません。確かめ終えたら、自分が起動した配信を止めます。
+
+- 幅: Desktop幅は1280x900、Mobile幅は390x844へ画面の大きさを変えて確かめます。幅を変えてもタッチ操作と
+  端末は再現しないため、タッチで結果が変わる操作（KI-WAVE-30など）は、この方法では確かめたことに
+  なりません。その経路は、実機で確かめるか未実施として報告します
+- 保存: ブラウザは閲覧データを残さない設定のため、閉じるとlocalStorageも消えます。ツール間の受け渡しと
+  保存の復元は、ブラウザを閉じずに、タブの切り替えか再読み込みで確かめます。Toolの呼び出しが1時間ないと
+  ブラウザは閉じるため（`--idle-timeout`の既定）、続きのつもりでも保存は消えています
+- 出力: 名前を付けずに保存した画面写真は、Git管理外の`tmp/playwright-mcp/`へ書かれます。名前を付けると
+  作業ツリーからの相対で解決されるため、必ず`tmp/playwright-mcp/`から始めます。Claude Codeでは、ほかの場所を
+  指定すると`restrict_browser_files.py`が拒否します
+
+Containerの中ではChromiumのsandboxを使えないため、sandboxを外して起動し、要求先を
+`http://127.0.0.1:8765`に限っています。上流はこの限定を安全境界ではないとしています。外部の資源を読まない
+自作の`web/`だけを開くことが前提であり、ほかのサイトを開くために使いません。
+
+サーバーの設定は、Claude Codeが`.mcp.json`、Codexが`.codex/config.toml`から読み、同じ引数で
+`npx --no -- playwright-mcp`を起動します。版は`package-lock.json`で固定しており、実行時に取得しません。
+Session用worktreeでは、そのworktreeで`npm ci`を実行してから使います。
+Claude Codeは初めて使う前に、このサーバーを使うかを確認します。Codexは信頼したProjectでだけ読みます。
+ブラウザを加える前（ADR 0032より前）に作成したContainerは、`Dev Containers: Rebuild Container`で
+作り直してください。Claude Codeでは、読み取り専用のレビュー担当のブラウザのToolをHookが拒否します。
+Codexでは仕組みで強制していないため、担当にブラウザを使わせず、主エージェントが確かめた結果を渡します。
+Git保護のHookと`.env`の拒否を迂回できる`browser_run_code_unsafe`（Node.jsのコードを実行）と、`.env`の拒否を
+迂回できる`browser_drop`と`browser_file_upload`（作業ツリーのファイルをページへ渡す）は、Claude Codeでは
+`.claude/settings.json`の`permissions.deny`で拒否します。Codexでは、これらの拒否も出力先の制限も仕組みで強制していないため、この3つを使わず、
+`filename`は`tmp/playwright-mcp/`から始めます。Claude Codeでの拒否とHookの実機での確認の状況、Codexが設定を
+読み込むかどうかは、ADR 0032の「影響」を見ます。
+
 ## テストの責務
 
 | 対象 | 主な検証内容 |
@@ -143,8 +185,9 @@ python tools/preview_output.py
 | `tests/test_cli.py` | UTF-8ファイル入出力と終了コード |
 | `tests/test_integration.py` | 実運用サンプルを使った一連の処理 |
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
-| `tests/test_agent_hooks.py` | Git保護と共有記憶のAgent Hook |
-| `tests/test_web_tool_checks.py` | Node.jsの版の固定、jsdomのlockfile、CIとDev Containerの手順、`tools/check_web.py`の失敗時の案内 |
+| `tests/test_agent_hooks.py` | Git保護、読み取り専用の強制、ブラウザの出力先の制限、共有記憶のAgent Hook、迂回するToolの`permissions.deny` |
+| `tests/test_web_tool_checks.py` | Node.jsの版の固定、開発依存の集合と厳密な版、lockfileとの一致、CIとDev Containerの手順、`tools/check_web.py`の失敗時の案内 |
+| `tests/test_browser_verification.py` | Playwright MCPの版の固定、Claude CodeとCodexの設定の一致、出力先と要求先の設定、手順の値と設定の一致、`web/`に外部のURLがないこと、拒否するToolが固定した版にあること、`npm ci`がScriptを実行しないこと、Dev Containerのブラウザとフォント |
 | `tests/web/*.test.js` | `web/`の実物のHTMLをjsdomで操作し、集結タイムライン計算の計算規則（`siege-timeline.md`の性質C1〜C3、C8〜C12）、保存、周期ウェーブタイマーの計測、自動取り込み、進行表示、保存できない環境での動作（COM-041）、カウントダウン表と共有する速度ペットのボーナスを検査 |
 
 CP-SATを含むため全テストには数十秒かかります。変更中は対象テストを実行しても
@@ -240,6 +283,7 @@ Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます�
 |---|---|---|
 | `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する |
 | `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す。主Sessionと他のAgentは判定しない |
+| `PreToolUse`（Playwright MCP） | `restrict_browser_files.py` | 主Sessionを含めて、ブラウザのToolの`filename`を`tmp/playwright-mcp/`の下に限り、解決の基準を変える`_meta`を拒否する。解析できない入力は拒否する（ADR 0032。実機での確認の状況はその「影響」を見る） |
 | `SessionStart` | `project_memory_hook.py session-start` | 共有記憶の開始状態を保存し、session_idと、別Sessionが使用中ならworktreeへ移る指示をContextへ渡す |
 | `Stop` | `project_memory_hook.py stop` | 未記録の変更があれば1 Sessionに1回だけ`finish`を促す |
 
@@ -251,7 +295,8 @@ Project Hookを実行します。一時的に無効化する場合は、利用�
 
 `.claude/settings.json`の`permissions.deny`は、生成物である`.claude/skills/`と`.claude/agents/`の
 直接編集と、`.env`の読み取りを拒否します。拒否されるのはClaude Codeの編集・読み取りToolだけで、
-`python tools/sync_agent_config.py`による生成は従来どおり動作します。
+`python tools/sync_agent_config.py`による生成は従来どおり動作します。Playwright MCPのToolのうち、Git保護や
+`.env`の拒否を迂回できる3つも拒否します（「ブラウザでの確認」を参照）。
 
 Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`bypassPermissions`のとき
 無視されます。`enforce_read_only_agent.py`はHook入力の`agent_type`で対象を判定し、Review Agentの
