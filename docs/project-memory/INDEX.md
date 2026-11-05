@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [安全策のHookの例外処理をそろえ、Review AgentのBashの扱いを別の変更へ分ける](sessions/2026/2026-11-05T130722Z-align-hook-parse-failures.md) | current | ai-harness | 4 |
 | [ADR 0032の一覧の確認の文と根拠を直す](sessions/2026/2026-11-04T160343Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 1 |
 | [ADR 0032の実機確認の文とHookの参照をレビューの指摘に合わせる](sessions/2026/2026-11-04T151812Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 2 |
 | [ADR 0032の実機確認の結果を確認済みの文へ置き換える](sessions/2026/2026-11-04T150615Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 1 |

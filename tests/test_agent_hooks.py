@@ -196,6 +196,9 @@ def test_read_only_agent_denies_writes_in_any_permission_mode() -> None:
         "echo a > README.md",
         "cat README.md >> notes.md",
         "git status; rm README.md",
+        # bashで`#`がコメントになるのは語の先頭だけで、語の途中の`#`の後ろも実行される。
+        "ls a#b ; rm README.md",
+        "ls a#b && rm README.md",
         "git commit -m x",
         "git checkout main",
         "git branch new-branch",
@@ -250,6 +253,72 @@ def test_read_only_agent_fails_closed_on_unreadable_input() -> None:
     ):
         decision = _read_only_decision(payload)
         assert decision is not None and decision[0] == "deny", payload
+
+
+def test_read_only_agent_denies_tool_name_that_is_not_text() -> None:
+    """文字列でないTool名は、値を理由の文へ埋め込まずに拒否する。"""
+
+    decision = _read_only_decision(
+        {
+            "hook_event_name": "PreToolUse",
+            "agent_type": "kvk-test-reviewer",
+            "tool_name": ["Edit"],
+        }
+    )
+    assert decision is not None and decision[0] == "deny"
+    assert "Tool名を確認できませんでした" in decision[1]
+    assert "Edit" not in decision[1]
+
+
+def test_safety_hooks_deny_input_that_stops_the_json_parser() -> None:
+    """例外で終わるとClaude CodeはToolを通すため、深い入れ子と巨大な整数も拒否する。"""
+
+    deep_nesting = b"[" * 200_000
+    # 解析できれば3つのHookとも許可する本文にし、整数の解析の失敗で拒否したことを確かめる。
+    huge_integer = (
+        b'{"hook_event_name": "PreToolUse", "agent_type": "kvk-test-reviewer", '
+        b'"tool_name": "Bash", "tool_input": {"command": "git status", "value": '
+        + b"1" * 5_000
+        + b"}}"
+    )
+    for script in (GIT_GUARD_SCRIPT, READ_ONLY_AGENT_SCRIPT, BROWSER_FILE_SCRIPT):
+        for body in (deep_nesting, huge_integer):
+            completed = subprocess.run(
+                [sys.executable, str(script)],
+                input=body,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                check=False,
+            )
+            assert completed.returncode == 0, (script.name, completed.stderr[-200:])
+            output = json.loads(completed.stdout)["hookSpecificOutput"]
+            assert output["permissionDecision"] == "deny", script.name
+
+
+def test_read_only_hook_restricts_agent_whose_definition_is_broken(
+    tmp_path: Path,
+) -> None:
+    """定義を読めないAgentは、読み取り専用の宣言を確かめられないため制限する。"""
+
+    hook = tmp_path / "tools" / "hooks" / READ_ONLY_AGENT_SCRIPT.name
+    hook.parent.mkdir(parents=True)
+    shutil.copy2(READ_ONLY_AGENT_SCRIPT, hook)
+    definition = tmp_path / ".codex" / "agents" / "kvk-test-reviewer.toml"
+    definition.parent.mkdir(parents=True)
+
+    for content in (b"\xff", b"sandbox_mode = "):
+        definition.write_bytes(content)
+        completed = _run_hook(
+            hook,
+            {
+                "hook_event_name": "PreToolUse",
+                "agent_type": "kvk-test-reviewer",
+                "tool_name": "Edit",
+            },
+        )
+        assert completed.returncode == 0, completed.stderr
+        output = json.loads(completed.stdout)["hookSpecificOutput"]
+        assert output["permissionDecision"] == "deny", content
 
 
 def test_read_only_hook_limits_only_agents_declared_read_only() -> None:

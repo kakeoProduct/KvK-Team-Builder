@@ -281,8 +281,8 @@ Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます�
 
 | Event | Script | 動作 |
 |---|---|---|
-| `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する |
-| `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す。主Sessionと他のAgentは判定しない |
+| `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する。解析できないHook入力は拒否する。事故を防ぐための照合であり、コマンドのうち字句解析できない区間は判定せずに通す |
+| `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す。主Sessionと他のAgentは判定しない。ただし、解析できないHook入力は主Sessionを含めて拒否する |
 | `PreToolUse`（Playwright MCP） | `restrict_browser_files.py` | 主Sessionを含めて、ブラウザのToolの`filename`を`tmp/playwright-mcp/`の下に限り、解決の基準を変える`_meta`を拒否する。解析できない入力は拒否する（ADR 0032。実機での確認の状況はその「影響」を見る） |
 | `SessionStart` | `project_memory_hook.py session-start` | 共有記憶の開始状態を保存し、session_idと、別Sessionが使用中ならworktreeへ移る指示をContextへ渡す |
 | `Stop` | `project_memory_hook.py stop` | 未記録の変更があれば1 Sessionに1回だけ`finish`を促す |
