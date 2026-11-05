@@ -1,0 +1,17 @@
+# Codexがこの信頼したProjectで起動するMCPサーバー。Claude Codeの`.mcp.json`と同じ引数にそろえる（ADR 0032）。
+[mcp_servers.playwright]
+command = "npx"
+args = [
+  "--no",
+  "--",
+  "playwright-mcp",
+  "--headless",
+  "--isolated",
+  "--no-sandbox",
+  "--allowed-origins",
+  "http://127.0.0.1:8765",
+  "--executable-path",
+  "/usr/bin/chromium",
+  "--output-dir",
+  "tmp/playwright-mcp",
+]

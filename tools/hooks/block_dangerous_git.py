@@ -171,9 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     args = create_argument_parser().parse_args(argv)
 
     # Windowsの既定コードページへ依存せず、HookのJSONをUTF-8として読む。
+    # 深い入れ子のRecursionErrorと巨大な整数のValueErrorも含め、例外で判定なしに終わらせない。
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (ValueError, RecursionError):
         _deny("Git保護ルールがHook入力を解析できなかったため拒否しました。")
         return 0
 

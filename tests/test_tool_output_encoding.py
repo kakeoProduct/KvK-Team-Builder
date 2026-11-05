@@ -33,6 +33,7 @@ def test_tool_scripts_are_discovered() -> None:
         "tools/sync_agent_config.py",
         "tools/hooks/block_dangerous_git.py",
         "tools/hooks/project_memory_hook.py",
+        "tools/hooks/restrict_browser_files.py",
     } <= set(_tool_scripts())
 
 

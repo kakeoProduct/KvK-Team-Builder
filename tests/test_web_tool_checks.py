@@ -82,18 +82,20 @@ def test_ci_installs_locked_jsdom_and_keeps_existing_steps() -> None:
     ]
 
 
-def test_jsdom_is_pinned_and_locked() -> None:
-    """jsdomの版を範囲指定せずに固定し、lockfileと一致させる。"""
+def test_dev_dependencies_are_pinned_and_locked() -> None:
+    """開発依存の集合と版を範囲指定せずに固定し、lockfileと一致させる。"""
 
     package = json.loads((PROJECT_ROOT / "package.json").read_text(encoding="utf-8"))
     assert package["private"] is True
-    jsdom_version = package["devDependencies"]["jsdom"]
-    assert re.fullmatch(r"\d+\.\d+\.\d+", jsdom_version), jsdom_version
     assert "dependencies" not in package
 
     lock = json.loads((PROJECT_ROOT / "package-lock.json").read_text(encoding="utf-8"))
-    assert lock["packages"][""]["devDependencies"] == {"jsdom": jsdom_version}
-    assert lock["packages"]["node_modules/jsdom"]["version"] == jsdom_version
+    # Playwright MCP（ADR 0032）も同じlockfileで固定する。依存を増やすときはこの集合を更新する。
+    assert set(package["devDependencies"]) == {"jsdom", "@playwright/mcp"}
+    assert lock["packages"][""]["devDependencies"] == package["devDependencies"]
+    for name, version in package["devDependencies"].items():
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), (name, version)
+        assert lock["packages"][f"node_modules/{name}"]["version"] == version
 
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "\nnode_modules/\n" in gitignore

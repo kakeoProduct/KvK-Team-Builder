@@ -38,5 +38,11 @@
   許可した確認コマンドだけを通す。Subagent定義のFrontmatterへ書いたHookは発火しなかったため使わない。
   Hookの追加と変更は、Claude Codeの新しいSessionから有効になる
 - `.claude/settings.json`の`permissions.deny`は、生成物の直接編集と`.env`の読み取りを拒否する。
-  Pythonなど編集Tool以外からの書き込みは対象外のため、同期Scriptは従来どおり実行できる
+  Pythonなど編集Tool以外からの書き込みは対象外のため、同期Scriptは従来どおり実行できる。
+  Playwright MCPの`browser_run_code_unsafe`はGit保護のHookと`.env`の拒否を、`browser_drop`と
+  `browser_file_upload`は`.env`の拒否を迂回できるため、これらも拒否する。
+  `tools/hooks/restrict_browser_files.py`は、主Sessionを含めて、ブラウザのToolの`filename`を
+  `tmp/playwright-mcp/`の下に限る。これらの実機での確認の状況はADR 0032の「影響」を見る
+- Playwright MCPは`.mcp.json`で登録する。共有されたProjectのMCPサーバーは、初めて使う前に利用者の
+  承認が要る。Codex向けの`.codex/config.toml`と引数をそろえる（ADR 0032）
 - `CLAUDE.md`にはClaude Code固有の読み替えだけを書き、共通の規約は`AGENTS.md`へ書く
