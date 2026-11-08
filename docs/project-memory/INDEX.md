@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [通常モードのグループの要件を要件定義書へ反映](sessions/2026/2026-11-08T153714Z-normal-mode-grouping-requirements.md) | current | requirements, review | 7 |
 | [取り込み元の補助ツールでweb/を置き換え、仕様書と検査を合わせる](sessions/2026/2026-11-03T091439Z-761423b3-a6c5-4cd7-bb35-04f5d82034b4.md) | current | requirements, web-tools | 31 |
 | [リリースのレビューのShouldへの対応（計算元の選択と要件の補記）](sessions/2026/2026-10-25T112118Z-source-select-and-docs.md) | current | review, web-tools | 8 |
 | [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |
