@@ -150,6 +150,7 @@ activemq-data/
 
 # 環境ファイル
 .env
+.env.*
 .envrc
 .venv
 env/

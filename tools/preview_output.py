@@ -15,15 +15,19 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
-from kvk_team.interfaces.cli.composition import create_team_builder, default_rules
-from kvk_team.team_building.adapters.input.markdown_member_parser import ParseError
-from kvk_team.team_building.adapters.optimization.errors import OptimizationError
-from kvk_team.team_building.adapters.persistence.json_team_master_repository import (
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# editable installは元の作業ツリーの`src`を指すため、worktreeで実行すると変更前のコードで
+# 編成してしまう。このScriptと同じ作業ツリーの`src`を先に読む。
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from kvk_team.interfaces.cli.composition import create_team_builder, default_rules  # noqa: E402
+from kvk_team.team_building.adapters.input.markdown_member_parser import ParseError  # noqa: E402
+from kvk_team.team_building.adapters.optimization.errors import OptimizationError  # noqa: E402
+from kvk_team.team_building.adapters.persistence.json_team_master_repository import (  # noqa: E402
     TeamMasterLoadError,
 )
-from kvk_team.team_building.application.build_team_plan import BuildError
+from kvk_team.team_building.application.build_team_plan import BuildError  # noqa: E402
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = PROJECT_ROOT / "sample" / "参加者一覧.md"
 DEFAULT_OUTPUT = PROJECT_ROOT / "tmp" / "preview" / "チーム編成.md"
 SELF_CHECK_HEADING = "## 自己チェック"

@@ -27,8 +27,8 @@
 - [ ] コードレビュー用のAgentは、指示に`Must`、`Should`、`Nice`の3段階を含む
 - [ ] 生成される`.claude/agents/`が編集Toolを持たない。既定と異なるToolは
       `tools/sync_agent_config.py`の`CLAUDE_AGENT_TOOLS`で指定する
-- [ ] Bashを持つ読み取り専用Agentが必要とする確認コマンドを、
-      `tools/hooks/enforce_read_only_agent.py`の許可リストと`tests/test_agent_hooks.py`へ反映する
+- [ ] 読み取り専用Agentが必要とする確認は、`tools/review_query.py`の操作として足し、
+      `tests/test_review_query.py`へ反映する。Hookの文法は広げない（ADR 0033）
 - [ ] 読み取り専用Agentの`tools`へ書き込み得るToolを加える場合は、`.claude/settings.json`の
       `enforce_read_only_agent.py`のmatcherにも加える
 
@@ -38,7 +38,7 @@
 - [ ] 標準入力はバイト列からUTF-8で読み、JSONはASCIIエスケープで出力する
 - [ ] `main`の最初に標準出力と標準エラーをUTF-8へ再設定する
 - [ ] `.claude/settings.json`ではexec形式で`python`と`${CLAUDE_PROJECT_DIR}`を使う
-- [ ] 安全策のHookは解析できない入力を拒否し、補助的なHookは失敗しても作業を止めない
+- [ ] 安全策のHookは解析できないHook入力を拒否し、補助的なHookは失敗しても作業を止めない
 - [ ] `tests/test_agent_hooks.py`に許可、拒否、失敗時の判定を加える
 
 ## Codex専用Skillを扱う

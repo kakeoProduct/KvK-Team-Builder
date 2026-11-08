@@ -1711,13 +1711,23 @@ def test_claude_review_agents_have_no_edit_tools() -> None:
         assert frontmatter["permissionMode"] == "plan"
         assert frontmatter["effort"] == "high"
         tools = {tool.strip() for tool in str(frontmatter["tools"]).split(",")}
-        assert tools.isdisjoint({"Edit", "Write", "NotebookEdit"})
         if path.stem == EVIDENCE_REVIEW_AGENT:
             # 出典を開いて照合するため、Web取得を持ちShellを持たない。
-            assert {"WebSearch", "WebFetch"} <= tools
-            assert "Bash" not in tools
+            assert tools == {"Read", "Grep", "Glob", "WebSearch", "WebFetch"}
+        else:
+            # Bashは残すが、Hookが固定のScriptの呼び出しだけを通す（ADR 0033）。
+            assert tools == {"Read", "Grep", "Glob", "Bash"}
         body = path.read_text(encoding="utf-8")
         assert definition["developer_instructions"].strip() in body
+
+
+def test_review_agents_are_told_to_use_the_review_query_script() -> None:
+    """担当はShellの代わりに固定のScriptで検索、履歴、テストを扱う。"""
+
+    for name in CODE_REVIEW_AGENTS:
+        with (AGENT_DIRECTORY / f"{name}.toml").open("rb") as source:
+            instructions = tomllib.load(source)["developer_instructions"]
+        assert "python tools/review_query.py" in instructions, name
 
 
 def test_sync_detects_and_repairs_drift(tmp_path: Path) -> None:

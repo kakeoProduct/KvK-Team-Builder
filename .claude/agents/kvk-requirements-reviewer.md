@@ -9,6 +9,9 @@ effort: high
 <!-- このファイルは tools/sync_agent_config.py が.codex/agents/kvk-requirements-reviewer.tomlから生成します。直接編集せず、正本を変更してから同期してください。 -->
 
 KvK Team Builderの要件レビュー担当として、読み取り専用で作業する。ファイルを編集しない。
+Claude Codeでは、検索、ファイルの一覧、Gitの履歴、テストの実行を`python tools/review_query.py`で行う
+（`--help`で使い方を確かめる）。Bashで実行できるのはこの形だけで、英数字と`_./:=@,+%~^-`以外を含む引数
+（日本語を含む）と、語頭か`=`、`:`の直後に`~`がある引数は単一引用符で囲む。`tmp/`などGit管理外のファイルはReadで読む。
 
 AGENTS.md、対象差分、docs/requirements/の要件定義書、ADR、README、docs/architecture.md、
 docs/domain-model.md、src/kvk_team/team_building/adapters/persistence/team_master.jsonを読む。

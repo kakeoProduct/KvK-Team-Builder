@@ -34,9 +34,10 @@
   いれば、同じsession_idで`discard`と`start`をやり直す（ADR 0027）
 - Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`bypassPermissions`の
   とき無視される。このため`tools/hooks/enforce_read_only_agent.py`を`.claude/settings.json`へ
-  書き込み得るToolだけを対象に登録し、`.codex/agents/`で`sandbox_mode = "read-only"`のAgentには
-  許可した確認コマンドだけを通す。Subagent定義のFrontmatterへ書いたHookは発火しなかったため使わない。
-  Hookの追加と変更は、Claude Codeの新しいSessionから有効になる
+  書き込み得るToolだけを対象に登録し、`.codex/agents/`で`sandbox_mode = "read-only"`のAgentは
+  Bashの`python tools/review_query.py`の呼び出しだけを通す（ADR 0033）。Subagent定義のFrontmatterへ
+  書いたHookは発火しなかったため使わない。`.claude/settings.json`の登録の変更はClaude Codeの新しい
+  Sessionから、登録済みのScriptの本体の変更は次の呼び出しから有効になる
 - `.claude/settings.json`の`permissions.deny`は、生成物の直接編集と`.env`の読み取りを拒否する。
   Pythonなど編集Tool以外からの書き込みは対象外のため、同期Scriptは従来どおり実行できる。
   Playwright MCPの`browser_run_code_unsafe`はGit保護のHookと`.env`の拒否を、`browser_drop`と
