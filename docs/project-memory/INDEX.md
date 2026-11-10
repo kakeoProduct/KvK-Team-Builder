@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [Review AgentのBashのbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T114901Z-review-agents-merge-dev.md) | current | harness | 3 |
 | [実装Issue 2のPR (a): 所属固定のモデル](sessions/2026/2026-11-10T011001Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | implementation, team-building | 53 |
 | [Review AgentのScript化の残りのNiceと振り返りの数え方を直す](sessions/2026/2026-11-09T141516Z-review-agents-remaining-nice.md) | current | ai-harness | 9 |
 | [Review AgentのBashを固定のScriptと閉じた文法に限り、Git保護を2つの判定にする](sessions/2026/2026-11-08T163438Z-review-agents-review-query.md) | current | ai-harness | 30 |
