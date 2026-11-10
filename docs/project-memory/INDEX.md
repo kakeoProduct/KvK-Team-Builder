@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [Review AgentとSkillの旧ルールの語を所属固定のモデルへ合わせる](sessions/2026/2026-11-10T120730Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 14 |
 | [実装Issue 2のPR (a): 所属固定のモデル](sessions/2026/2026-11-10T011001Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | implementation, team-building | 53 |
 | [通常モードのグループの要件を要件定義書へ反映](sessions/2026/2026-11-08T153714Z-normal-mode-grouping-requirements.md) | current | requirements, review | 7 |
 | [取り込み元の補助ツールでweb/を置き換え、仕様書と検査を合わせる](sessions/2026/2026-11-03T091439Z-761423b3-a6c5-4cd7-bb35-04f5d82034b4.md) | current | requirements, web-tools | 31 |

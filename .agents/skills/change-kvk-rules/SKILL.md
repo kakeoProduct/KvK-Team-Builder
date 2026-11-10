@@ -1,6 +1,6 @@
 ---
 name: change-kvk-rules
-description: KvKの編成ルール変更を、利用者向け契約、CP-SATモデル、独立Validator、Exporter、設定、テスト、ADRで一貫させながら実装または計画する。人数、VC、集結主、時間枠、戦力順、警告、目的関数、待機、参加者入力の変更時に使用する。
+description: KvKの編成ルール変更を、利用者向け契約、CP-SATモデル、独立Validator、Exporter、設定、テスト、ADRで一貫させながら実装または計画する。人数、VC、リーダー、時間枠、戦力順、警告、目的関数、待機、参加者入力の変更時に使用する。
 ---
 
 # KvKルールを変更する
@@ -11,7 +11,8 @@ description: KvKの編成ルール変更を、利用者向け契約、CP-SATモ�
 ## 最初にルールを分類する
 
 `AGENTS.md`、`docs/domain-model.md`、`README.md`と`docs/architecture.md`の関連箇所、
-対象テスト、`src/kvk_team/team_building/adapters/persistence/team_master.json`を読む。依頼された動作を、次の主分類から1つ
+対象テスト、`src/kvk_team/team_building/adapters/persistence/team_master.json`、
+`src/kvk_team/team_building/adapters/persistence/settings.example.json`を読む。依頼された動作を、次の主分類から1つ
 選んで分類する。利用者から受け取ったルール文書や決定事項など、Repositoryにない出典は、受け取った
 時点でGit管理外の`tmp/review-sources/`へ保存する（ADR 0024）。
 

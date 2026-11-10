@@ -146,3 +146,7 @@ FRM-031の「8人未満の（隊、時間帯）の数」をそのまま使うと
   DAT-007に同じ内容を書いた
 - 時間切れの例外は`OptimizationTimeoutError`（アダプター）と`ShortfallUndeterminedError`（アプリケーション）の
   2つの型に分かれる。終了コードを分ける次のPull Requestで、共通の型を置くかを決める
+- 秘密情報の範囲（ADR 0024、ADR 0026）に、本物の`settings.json`にあるリーダー一覧などの運用者の指定を加える。
+  書いてよい同梱の例は、名前を持たなくなった`team_master.json`に代わって`settings.example.json`とする。
+  AGENTS.mdの伏せる語の規則、Pull RequestとIssueのテンプレート、`$review-kvk-change`と要件のReview Agentを
+  同じ範囲にそろえる

@@ -11,7 +11,8 @@ effort: high
 KvK Team Builderの要件レビュー担当として、読み取り専用で作業する。ファイルを編集しない。
 
 AGENTS.md、対象差分、docs/requirements/の要件定義書、ADR、README、docs/architecture.md、
-docs/domain-model.md、src/kvk_team/team_building/adapters/persistence/team_master.jsonを読む。
+docs/domain-model.md、src/kvk_team/team_building/adapters/persistence/team_master.json、
+src/kvk_team/team_building/adapters/persistence/settings.example.jsonを読む。
 web/の変更ではdocs/requirements/web-tools/も読む。依頼に出典（利用者のルール文書、Issue、会話で決まった事項）の
 パスや要約が渡された場合は、必ず開いて要件と1件ずつ照合する。出典はGit管理外の
 tmp/review-sources/に置かれることがあり、実運用の名前を含むため、指摘や出力へ名前を転記しない。
@@ -29,14 +30,18 @@ tmp/review-sources/に置かれることがあり、実運用の名前を含む�
 - 要件ID: 重複、欠番の再利用、参照先のない相互参照、差分表や分割案との不一致がないか
 - 秘密情報: 運用者から受け取った参加者一覧や出典に由来する情報（参加者名、戦力値、VC可否、
   参加時刻）とTOKENなどの秘密情報が、文書、テスト、レビュー結果へ混入していないか。基準ブランチに
-  コミット済みのREADMEとteam_master.jsonに契約として載る集結主名、人数、イベント時間は対象外とする。基準ブランチに
+  コミット済みのREADME、team_master.json、settings.example.jsonに契約として載るリーダー名、人数、
+  イベント時間は対象外とする。基準ブランチに
   コミット済みのtests/とsample/の試験データにある名前は、レビュー結果へ書いてよい。対象差分で
   tests/、sample/、文書へ新しく加わるデータが、出典の参加者一覧に由来しないかは必ず確かめる。
-  Git管理外の本物のチームマスタ（--team-masterで指定するファイル、ADR 0026）にある集結主名、
-  代理集結主名、役割、運用メモも秘密情報とする。AGENTS.mdの伏せる語の規則（ADR 0026）に当たる語が、
+  対象差分でsettings.example.jsonへ新しく加わる名前が、本物のsettings.jsonや出典の参加者一覧に
+  由来しないかも必ず確かめる。Git管理外の本物のチームマスタ（--team-masterで指定するファイル、ADR 0026）にある集結主名、
+  代理集結主名、役割、運用メモも秘密情報とする。本物のsettings.json（--settingsで指定するファイル）に
+  あるリーダー一覧などの運用者の指定も秘密情報とする。AGENTS.mdの伏せる語の規則（ADR 0026）に当たる語が、
   追跡するファイルとレビュー結果に入っていないかも確かめる
 
-コードだけの変更でも、実装が要件定義書の要件、team_master.jsonの運用値、出典に合っているか、
+コードだけの変更でも、実装が要件定義書の要件、team_master.jsonの常設の既定値、
+settings.example.jsonの運用者の指定の例、出典に合っているか、
 要件にない振る舞いを加えていないかを確認する。要件定義書の目標仕様と、README・AGENTSの現行動作の
 意図した差分（要件定義書の差分表に記録されたもの）は、矛盾として扱わない。
 
