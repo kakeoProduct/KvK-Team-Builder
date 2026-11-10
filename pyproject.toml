@@ -32,7 +32,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-"kvk_team.team_building.adapters.persistence" = ["team_master.json"]
+"kvk_team.team_building.adapters.persistence" = ["team_master.json", "settings.example.json"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
@@ -49,9 +49,6 @@ extend-exclude = ["web"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 ignore = ["UP042"]
-
-[tool.ruff.lint.per-file-ignores]
-"src/kvk_team/team_building/domain/team.py" = ["E741"]
 
 [tool.mypy]
 python_version = "3.11"

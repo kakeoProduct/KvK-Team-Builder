@@ -5,14 +5,22 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from kvk_team.interfaces.cli.composition import create_team_builder, default_rules
+from kvk_team.interfaces.cli.composition import (
+    create_team_builder,
+    default_rules,
+    default_specification,
+)
 from kvk_team.interfaces.cli.team_builder import TeamBuilder
 from kvk_team.team_building.adapters.input.markdown_member_parser import ParseError
 from kvk_team.team_building.adapters.optimization.errors import OptimizationError
+from kvk_team.team_building.adapters.persistence.json_operator_settings_repository import (  # noqa: E501
+    OperatorSettingsLoadError,
+)
 from kvk_team.team_building.adapters.persistence.json_team_master_repository import (
     TeamMasterLoadError,
 )
 from kvk_team.team_building.application.build_team_plan import BuildError
+from kvk_team.team_building.domain.specification import SpecificationError
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -27,7 +35,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
         "--team-master",
         type=Path,
         default=None,
-        help="チームマスタJSONのパス。省略すると同梱の例を使う",
+        help="チームマスタJSON（戦闘時間と出撃人数の上限）のパス。省略すると同梱の例を使う",
+    )
+    parser.add_argument(
+        "--settings",
+        type=Path,
+        default=None,
+        help=(
+            "運用者の指定（settings.json。リーダー一覧）のパス。"
+            "省略すると同梱の架空の例を使う"
+        ),
     )
     return parser
 
@@ -37,16 +54,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     argument_parser = create_argument_parser()
     args = argument_parser.parse_args(argv)
-    if args.team_master is None:
+    if args.settings is None:
         print(
-            "注意: --team-masterの指定がないため、同梱の例（架空の集結主と役割）で編成します。"
-            "本物の編成では--team-masterで本物のチームマスタを指定してください。",
+            "注意: --settingsの指定がないため、同梱の例（架空のリーダー一覧）で編成します。"
+            "本物の編成ではイベントのフォルダのsettings.jsonを--settingsで指定してください。",
             file=sys.stderr,
         )
     try:
         source = args.input.read_text(encoding="utf-8")
+        specification = default_specification(args.settings)
         builder: TeamBuilder = create_team_builder(default_rules(args.team_master))
-        result = builder.build(source)
+        result = builder.build(source, specification)
         args.output.write_text(result, encoding="utf-8")
     except (
         OSError,
@@ -54,6 +72,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         OptimizationError,
         BuildError,
         TeamMasterLoadError,
+        OperatorSettingsLoadError,
+        SpecificationError,
     ) as error:
         argument_parser.exit(status=2, message=f"エラー: {error}\n")
     return 0
