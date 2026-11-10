@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.member import Member
 from kvk_team.team_building.domain.plan import TeamPlan
 from kvk_team.team_building.domain.specification import OperatorSpecification
@@ -33,6 +34,17 @@ class ProvenInfeasible:
 OptimizationOutcome = SolvedPlan | ProvenInfeasible
 """Optimizerの結果。時間切れは結果にせず、時間切れのエラーとして送出する（ADR 0019）。"""
 
+ShortfallKey = tuple[int, int]
+"""下限の不足の（隊の番号, 時間帯の開始の分）。"""
+
+
+class SearchTimeoutError(RuntimeError):
+    """探索の制限内に結果を確定できなかったことを表す共通の型（ADR 0035）。
+
+    Optimizerの時間切れ（`OptimizationTimeoutError`）と、下限の不足が避けられないかを確定できない
+    場合（`ShortfallUndeterminedError`）の両方がこの型を継承する。CLIは終了コード4で終える。
+    """
+
 
 class TeamPlanOptimizerPort(Protocol):
     """所属固定の編成を生成する境界。"""
@@ -41,8 +53,14 @@ class TeamPlanOptimizerPort(Protocol):
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        allowed_shortfalls: frozenset[ShortfallKey] | None = None,
     ) -> OptimizationOutcome:
-        """編成の候補を生成する。"""
+        """編成の候補を生成する。
+
+        `allowed_shortfalls`を渡した場合は、延長境界時刻より前の休止をその（隊、時間帯）だけに
+        限る。回答を受け入れられるか（FRM-090の「編成が見つかる」）を確かめるために使い、
+        満たす編成がなければ`ProvenInfeasible`を返す。Noneなら限らない。
+        """
 
 
 class TeamPlanValidatorPort(Protocol):
@@ -69,3 +87,10 @@ class OperatorSpecificationRepository(Protocol):
 
     def load(self) -> OperatorSpecification:
         """運用者の指定を読み込む。"""
+
+
+class AnswersRepository(Protocol):
+    """永続化方式から番号付きの質問への運用者の回答を取得する境界（DAT-009）。"""
+
+    def load(self) -> tuple[Answer, ...]:
+        """運用者の回答を読み込む。"""

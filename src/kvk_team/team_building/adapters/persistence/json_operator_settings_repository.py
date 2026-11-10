@@ -93,13 +93,13 @@ def parse_operator_settings(raw: Any) -> OperatorSpecification:
             + "。この版では`leaders`だけを読みます"
         )
     leaders = tuple(
-        _member_ref(item, f"leadersの{index}番目")
+        parse_member_ref(item, f"leadersの{index}番目")
         for index, item in enumerate(settings.items("leaders"), start=1)
     )
     return OperatorSpecification(leaders=leaders)
 
 
-def _member_ref(raw: Any, where: str) -> MemberRef:
+def parse_member_ref(raw: Any, where: str) -> MemberRef:
     """`{"name": 名前, "alliance": 同盟}`をメンバーの指し方へ変換する。"""
 
     fields = JsonFields(raw, where)

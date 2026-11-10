@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.member import Member
 from kvk_team.team_building.domain.specification import OperatorSpecification
 from kvk_team.team_building.domain.validation import ValidatedTeamPlan
@@ -23,6 +24,7 @@ class BuildTeamPlanPort(Protocol):
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        answers: Sequence[Answer] = (),
     ) -> ValidatedTeamPlan:
         """検証済み編成を返す。"""
 
@@ -45,9 +47,14 @@ class TeamBuilder:
     build_team_plan: BuildTeamPlanPort
     exporter: ExporterPort
 
-    def build(self, markdown: str, specification: OperatorSpecification) -> str:
+    def build(
+        self,
+        markdown: str,
+        specification: OperatorSpecification,
+        answers: Sequence[Answer] = (),
+    ) -> str:
         """参加者Markdownから、検証済みの所属固定の編成Markdownを返す。"""
 
         members = self.parser.parse(markdown)
-        validated = self.build_team_plan.execute(members, specification)
+        validated = self.build_team_plan.execute(members, specification, answers)
         return self.exporter.export(validated)

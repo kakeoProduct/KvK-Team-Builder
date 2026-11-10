@@ -126,8 +126,9 @@ python tools/preview_output.py
 ```
 
 既定では`sample/参加者一覧.md`を入力にし、Git管理外の`tmp/preview/チーム編成.md`へ書きます。
-直前の出力は`チーム編成.previous.md`へ退避されます。`--input`、`--output`、`--seconds`、`--settings`で
-入力、出力先、最適化の制限時間、運用者の指定（省略時は同梱の架空のリーダー一覧）を変更できます。CP-SATは制限時間内の探索結果を返すため、
+直前の出力は`チーム編成.previous.md`へ退避されます。`--input`、`--output`、`--seconds`、`--settings`、`--answers`で
+入力、出力先、最適化の制限時間、運用者の指定（省略時は同梱の架空のリーダー一覧）、番号付きの質問への回答（省略時は
+回答なし）を変更できます。運用者の回答が要る場合は質問を表示して終了コード3、時間切れは4で終わります。CP-SATは制限時間内の探索結果を返すため、
 差分は確認材料として扱い、合否は自己チェックと品質ゲートで判断します。
 
 ### ブラウザでの確認
@@ -178,11 +179,19 @@ Git保護のHookと`.env`の拒否を迂回できる`browser_run_code_unsafe`（
 |---|---|
 | `tests/test_parser.py` | 日本語入力記法、時間、属性、入力エラー |
 | `tests/test_membership_optimizer.py` | 所属固定のCP-SATの必須制約（上位隊の常時稼働を含む）、暫定の目的関数、待機と別枠、決定性、解なしの証明と時間切れの区別 |
-| `tests/test_team_plan_exporter.py` | 隊、待機、別枠、時間帯別の出撃、自己チェックのMarkdown出力 |
+| `tests/test_team_plan_exporter.py` | 隊、出撃開始時刻、応援、待機、別枠、時間帯別の出撃、注記、自己チェックのMarkdown出力 |
 | `tests/test_team_master_repository.py` | チームマスタ（schema_version 2）の読み込み、以前の形の拒否、同梱の例の架空の名前 |
 | `tests/test_operator_settings_repository.py` | 運用者の指定（`settings.json`）の読み込み、未実装のキーの拒否、名前を出さないエラー |
 | `tests/test_validator_properties.py` | 生成した編成で、必須条件を1つ破った候補の拒否と有効な編成の受理 |
 | `tests/test_optimizer_properties.py` | 生成した参加者でのOptimizer出力の独立検証 |
+| `tests/test_late_start_optimizer.py` | 遅れて出撃する隊と応援のCP-SATの制約、休止を許す（隊、時間帯）の限定 |
+| `tests/test_late_start_validation.py` | 出撃開始時刻と応援の独立検証（指定との一致とFRM-042の条件を別に確かめる） |
+| `tests/test_answers.py` | 回答のドメインの値と、ほかの指定によらない回答の誤り |
+| `tests/test_answers_repository.py` | 運用者の回答（`answers.json`）の読み込みと、名前を出さないエラー |
+| `tests/test_answer_acceptance.py` | 回答を確かめる手順（使わなかった、受け入れなかった注記、番号付きの質問、時間切れ） |
+| `tests/test_answer_properties.py` | 架空の世界（`tests/answer_world.py`）で、FRM-090の回答を受けた実行の性質 |
+| `tests/test_shortfall_question_text.py` | 番号付きの質問の文 |
+| `tests/test_late_start_cli.py` | 序盤の休止の質問から回答の受け入れまでのCLIの一連の処理 |
 | `tests/test_service.py` | Adapter調整、再試行、失敗伝播 |
 | `tests/test_cli.py` | UTF-8ファイル入出力と終了コード |
 | `tests/test_integration.py` | 実運用サンプルを使った一連の処理 |
