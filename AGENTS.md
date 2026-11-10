@@ -308,5 +308,11 @@ ADR、Domain Model、Review Agentへ反映します。`$review-kvk-change`の自
 - 要件の衝突を発見した場合は、推測で正本を変更せず利用者へ確認する
 - 依頼範囲を超えるリファクタリングや依存追加を無断で行わない
 - 実行したチェックと未実行のチェックを最終報告へ明記する
+- `web/`のツールを変更した場合は、Dev ContainerではPlaywright MCPで`web/`を`http://127.0.0.1:8765/`から開き、
+  Desktop幅とMobile幅の主要な操作を確かめる（COM-053、ADR 0032）。手順は`DEVELOPMENT.md`の
+  「ブラウザでの確認」に従い、ブラウザのToolの`filename`は`tmp/playwright-mcp/`から始める。環境の制約で
+  使えないときや別の作業ツリーの配信が終わらないときは手元のブラウザで確かめ、どちらもできなければ未実施として最終報告へ書く。`browser_run_code_unsafe`、`browser_drop`、
+  `browser_file_upload`は使わない。読み取り専用のレビュー担当にはブラウザを
+  使わせず、主エージェントが確かめた結果と画面写真のパスを渡す
 - テスト成功だけでなく、警告と生成結果が運用上読めることも確認する。編成または表示を
   変更した場合は`python tools/preview_output.py`で自己チェック、警告、前回との差分を読む

@@ -120,6 +120,8 @@ def _tokenize(command: str) -> list[str] | None:
         return None
     lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    # shlexの既定では語の途中の`#`から行末までを読み捨て、後ろのコマンドを検査できない。
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
@@ -245,12 +247,12 @@ def _is_read_only_agent(agent_type: str) -> bool:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", agent_type):
         return False
     path = AGENT_DEFINITION_DIRECTORY / f"{agent_type}.toml"
-    if not path.is_file():
-        return False
     try:
+        if not path.is_file():
+            return False
         with path.open("rb") as source:
             definition = tomllib.load(source)
-    except (OSError, tomllib.TOMLDecodeError):
+    except (OSError, ValueError, RecursionError):
         # 読み取り専用と宣言されたか確かめられないAgentは安全側で制限する。
         return True
     return definition.get("sandbox_mode") == "read-only"
@@ -265,6 +267,8 @@ def _blocked_reason(payload: Any) -> str | None:
     if not isinstance(agent_type, str) or not _is_read_only_agent(agent_type):
         return None
     tool_name = payload.get("tool_name")
+    if not isinstance(tool_name, str):
+        return "Tool名を確認できませんでした"
     if tool_name != "Bash":
         return f"{tool_name}は読み取り専用のAgentで使用できません"
 
@@ -307,9 +311,10 @@ def main() -> int:
 
     _use_utf8_output()
     # Windowsの既定コードページへ依存せず、HookのJSONをUTF-8として読む。
+    # 深い入れ子のRecursionErrorと巨大な整数のValueErrorも含め、例外で判定なしに終わらせない。
     try:
         payload = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (ValueError, RecursionError):
         _deny("Hook入力を解析できませんでした")
         return 0
 

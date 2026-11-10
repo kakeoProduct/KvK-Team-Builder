@@ -21,8 +21,11 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && node --version \
     && npm --version
 
+# chromium、fonts-noto-cjk、fonts-noto-color-emojiは、Playwright MCPがweb/を操作して確かめるブラウザと、
+# 日本語と絵文字の表示に使う（ADR 0032）。sudoは所有者をそろえるScriptにしか許していないため（ADR 0016）、
+# 共有ライブラリごとイメージの作成時に入れる。
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes git sudo \
+    && apt-get install --no-install-recommends --yes git sudo chromium fonts-noto-cjk fonts-noto-color-emoji \
     && groupadd --gid "${USER_GID}" "${USERNAME}" \
     && useradd --uid "${USER_UID}" --gid "${USER_GID}" --create-home "${USERNAME}" \
     && install --directory --owner="${USERNAME}" --group="${USERNAME}" \

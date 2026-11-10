@@ -15,8 +15,16 @@
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
 | [Review AgentとSkillの旧ルールの語を所属固定のモデルへ合わせる](sessions/2026/2026-11-10T120730Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 14 |
+| [PR #10のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T115838Z-browser-mcp-merge-dev.md) | current | harness | 0 |
 | [実装Issue 2のPR (a): 所属固定のモデル](sessions/2026/2026-11-10T011001Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | implementation, team-building | 53 |
 | [通常モードのグループの要件を要件定義書へ反映](sessions/2026/2026-11-08T153714Z-normal-mode-grouping-requirements.md) | current | requirements, review | 7 |
+| [安全策のHookの例外処理をそろえ、Review AgentのBashの扱いを別の変更へ分ける](sessions/2026/2026-11-05T130722Z-align-hook-parse-failures.md) | current | ai-harness | 4 |
+| [ADR 0032の一覧の確認の文と根拠を直す](sessions/2026/2026-11-04T160343Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 1 |
+| [ADR 0032の実機確認の文とHookの参照をレビューの指摘に合わせる](sessions/2026/2026-11-04T151812Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 2 |
+| [ADR 0032の実機確認の結果を確認済みの文へ置き換える](sessions/2026/2026-11-04T150615Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 1 |
+| [ADR 0032の代替案の判断の表示を根拠に合わせる](sessions/2026/2026-11-04T145418Z-20261104t145150z-69a8e886.md) | current | ai-harness, web-tools | 1 |
+| [Playwright MCPのToolによるHookと拒否の迂回を塞ぐ](sessions/2026/2026-11-04T142434Z-20261104t132840z-c0293711.md) | current | ai-harness, dev-container, web-tools | 12 |
+| [Playwright MCPでweb/をブラウザ操作して確かめる環境を加える](sessions/2026/2026-11-04T011359Z-57e06d37-6cd8-4603-857a-6eab57ff4f0b.md) | current | ai-harness, dev-container, web-tools | 14 |
 | [取り込み元の補助ツールでweb/を置き換え、仕様書と検査を合わせる](sessions/2026/2026-11-03T091439Z-761423b3-a6c5-4cd7-bb35-04f5d82034b4.md) | current | requirements, web-tools | 31 |
 | [リリースのレビューのShouldへの対応（計算元の選択と要件の補記）](sessions/2026/2026-10-25T112118Z-source-select-and-docs.md) | current | review, web-tools | 8 |
 | [リリースのレビューで出た集結タイムライン計算と周期ウェーブタイマーの指摘を直す](sessions/2026/2026-10-25T103033Z-release-review-fixes.md) | current | web-tools | 9 |
