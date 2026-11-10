@@ -261,7 +261,8 @@ Interactionのために主要なUI FrameworkまたはAnimation Libraryを追加�
 操作で動かす`tests/web/`の検査で確かめます。カウントダウン表は、集結タイムライン計算と共有する速度ペットの
 ボーナスだけを同じ方法で確かめます（ADR 0031）。`tools/check_web.py`が`python tools/check.py`の1項目として
 実行し、Node.jsまたはjsdomがなければ入れ方を示して失敗します。Node.jsの版は`.node-version`、jsdomの
-版は`package.json`と`package-lock.json`で固定します（ADR 0030）。
+版は`package.json`と`package-lock.json`で固定します（ADR 0030）。画面幅による表示の違いは、Dev Containerの
+Playwright MCPで実際のブラウザを操作して確かめます。品質ゲートには含めません（ADR 0032）。
 
 ツールどうしは同じoriginのlocalStorageでつながります。集結タイムライン計算は計算のたびに
 `siegeTimelineForWaveTimer`へ結果を書き、周期ウェーブタイマーはそれを読むだけで、書き換えません。

@@ -4,7 +4,10 @@
       "Edit(.claude/skills/**)",
       "Edit(.claude/agents/**)",
       "Read(.env)",
-      "Read(.env.*)"
+      "Read(.env.*)",
+      "mcp__playwright__browser_run_code_unsafe",
+      "mcp__playwright__browser_drop",
+      "mcp__playwright__browser_file_upload"
     ]
   },
   "hooks": {
@@ -31,6 +34,18 @@
             "command": "python",
             "args": [
               "${CLAUDE_PROJECT_DIR}/tools/hooks/enforce_read_only_agent.py"
+            ]
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__playwright__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/tools/hooks/restrict_browser_files.py"
             ]
           }
         ]
