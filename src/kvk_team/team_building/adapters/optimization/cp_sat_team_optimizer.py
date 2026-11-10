@@ -1,84 +1,136 @@
-"""時間スロットごとの動的チーム編成を行うCP-SAT Optimizer。"""
+"""所属固定の編成を行うCP-SAT Optimizer。
+
+メンバーごとに所属する隊か待機を1つ選び、時間帯ごとの出撃は所属と参加時間から決まる。
+目的は次の順の辞書式で比べる（Issue 3でFRM-037の指標へ置き換える）。
+
+1. 延長境界時刻より前の休止の（隊、時間帯）の数（下限の不足。0でなければ出力しない）
+2. 延長境界時刻より前で、出撃人数が下限の基本（8人）に足りない人数の2乗の和
+3. 延長境界時刻以降の休止の（隊、時間帯）の数
+4. 延長境界時刻以降で、下限の基本に足りない人数の2乗の和
+5. 待機の人数
+6. 上位隊の戦力（大きいほどよい）
+
+2と4は隊の人数を均すための暫定の指標である。FRM-031の「8人未満の（隊、時間帯）の数」は、
+6人以下を禁じるFRM-039と組で入れないと、少数の隊を捨てて残りを8人にそろえる編成を選ぶ。
+足りない人数の合計は配り方によらず同じ値になり、人数を均せない。このためIssue 3で
+FRM-031とFRM-039を同時に入れるまで、2乗の和を使う（ADR 0034）。
+"""
 
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
 from kvk_team.team_building.adapters.optimization.errors import (
-    InfeasibleRosterError,
     OptimizationError,
     OptimizationTimeoutError,
+)
+from kvk_team.team_building.application.ports import (
+    OptimizationOutcome,
+    ProvenInfeasible,
+    SolvedPlan,
 )
 from kvk_team.team_building.domain.availability import (
     AvailabilityResolver,
     ResolvedAvailability,
 )
 from kvk_team.team_building.domain.member import Member
+from kvk_team.team_building.domain.plan import TeamMembership, TeamPlan, TimeSlot
 from kvk_team.team_building.domain.rules import KvKRules
-from kvk_team.team_building.domain.schedule import (
-    DynamicTeamPlan,
-    SlotAssignment,
-    TimeSlot,
+from kvk_team.team_building.domain.specification import (
+    OperatorSpecification,
+    resolve_leaders,
 )
-from kvk_team.team_building.domain.team_master import (
-    StrengthOperator,
-    TeamDefinition,
+from kvk_team.team_building.domain.team import (
+    AT_LEAST_AS_STRONG_PAIRS,
+    EXTENSION_BOUNDARY_MINUTES,
+    SORTIE_FLOOR,
+    STRICTLY_STRONGER_PAIRS,
+    TOP_TEAM_COUNT,
+    TOP_TEAM_SIZE,
+    is_top_team,
 )
 
-AssignmentKey = tuple[int, int, int]
+
+@dataclass(frozen=True, slots=True)
+class _Model:
+    """1回の最適化で使うCP-SATの変数。"""
+
+    model: cp_model.CpModel
+    membership: dict[tuple[int, int], cp_model.IntVar]
+    """（メンバーの番号, 隊の番号）の所属。"""
+    waiting: dict[int, cp_model.IntVar]
+
+
+_Term = tuple[int, cp_model.IntVar, int]
+"""目的の項。（係数, 変数, 変数の上限）。"""
 
 
 @dataclass(slots=True)
-class TimeSlotTeamOptimizer:
-    """参加可能時間ごとに配置し、交代回数を最小化する。"""
+class _Levels:
+    """目的の段ごとの項。"""
+
+    rest_before: list[_Term] = field(default_factory=list)
+    under_before: list[_Term] = field(default_factory=list)
+    rest_after: list[_Term] = field(default_factory=list)
+    under_after: list[_Term] = field(default_factory=list)
+    top_power: list[_Term] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class MembershipOptimizer:
+    """リーダー一覧から隊を作り、確定参加者を隊か待機へ割り当てる。"""
 
     rules: KvKRules
 
-    def optimize(self, members: list[Member]) -> DynamicTeamPlan:
-        """確定参加者の動的配置と時間未定者の待機一覧を返す。"""
+    def optimize(
+        self,
+        members: Sequence[Member],
+        specification: OperatorSpecification,
+    ) -> OptimizationOutcome:
+        """所属固定の編成を返す。必須条件を満たせないと証明した場合は理由を返す。"""
 
-        self._validate_members(members)
-        master = self.rules.team_master
-        partition = AvailabilityResolver(master.event_time).partition(members)
-        slots = tuple(
-            TimeSlot(start, start + master.event_time.slot_minutes)
-            for start in master.event_time.slot_starts
+        source = list(members)
+        self._validate_members(source)
+        leaders = resolve_leaders(specification, source)
+        partition = AvailabilityResolver(self.rules.team_master.event_time).partition(
+            source
         )
-        active_indexes = self._active_member_indexes(partition.confirmed, slots)
-        self._validate_priority_vc_supply(partition.confirmed, slots, active_indexes)
+        confirmed = partition.confirmed
+        slots = self.rules.time_slots
+        team_numbers = tuple(range(1, specification.team_count + 1))
+        leader_index = {
+            number: next(
+                (
+                    index
+                    for index, availability in enumerate(confirmed)
+                    if availability.member == leader
+                ),
+                None,
+            )
+            for number, leader in zip(team_numbers, leaders, strict=True)
+        }
+        reason = self._top_team_supply_shortage(confirmed, leader_index, slots)
+        if reason is not None:
+            return ProvenInfeasible(reason)
 
-        model = cp_model.CpModel()
-        assignments = self._create_assignment_variables(
-            model,
-            partition.confirmed,
-            slots,
-            active_indexes,
+        variables = self._create_variables(confirmed, team_numbers, leader_index)
+        levels = self._add_sortie_constraints(
+            variables, confirmed, team_numbers, leader_index, slots
         )
-        team_counts = self._add_assignment_and_capacity_constraints(
-            model,
-            partition.confirmed,
-            slots,
-            active_indexes,
-            assignments,
+        waiting = [(1, variable, 1) for variable in variables.waiting.values()]
+        self._set_lexicographic_objective(
+            variables.model,
+            [
+                (levels.rest_before, False),
+                (levels.under_before, False),
+                (levels.rest_after, False),
+                (levels.under_after, False),
+                (waiting, False),
+                (levels.top_power, True),
+            ],
         )
-        team_power = self._add_vc_leader_and_power_constraints(
-            model,
-            partition.confirmed,
-            slots,
-            active_indexes,
-            assignments,
-        )
-        objective = self._build_objective(
-            model,
-            partition.confirmed,
-            slots,
-            active_indexes,
-            assignments,
-            team_counts,
-            team_power,
-        )
-        model.maximize(objective)
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.rules.maximum_optimization_seconds
@@ -88,26 +140,11 @@ class TimeSlotTeamOptimizer:
             )
         solver.parameters.num_search_workers = self.rules.solver_worker_count
         solver.parameters.random_seed = self.rules.solver_random_seed
-        status = solver.solve(model)
-        self._raise_for_unsolved_status(status)
-        return self._extract_plan(
-            solver,
-            partition.confirmed,
-            partition.standby,
-            slots,
-            active_indexes,
-            assignments,
-        )
-
-    def _raise_for_unsolved_status(self, status: int) -> None:
-        """解なし、時間切れ、モデル不正を区別して利用者向けの例外へ変換する。"""
-
-        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            return
+        status = solver.solve(variables.model)
         if status == cp_model.INFEASIBLE:
-            raise InfeasibleRosterError(
-                "全時間帯の必須条件を満たす編成は存在しません。"
-                "参加者、VC、参加時間、チーム人数を見直してください"
+            return ProvenInfeasible(
+                "上位隊の人数、VC、戦力関係を全時間帯で満たす編成は存在しません。"
+                "参加者、VC、参加時間、リーダー一覧を見直してください"
             )
         if status == cp_model.UNKNOWN:
             limit = f"{self.rules.maximum_optimization_seconds:g}秒"
@@ -118,13 +155,24 @@ class TimeSlotTeamOptimizer:
                 "時間切れのため、編成が存在しないとは確定していません。"
                 "負荷の低い環境で再実行するか、制限時間を延ばしてください"
             )
-        raise OptimizationError(
-            f"最適化モデルを解けませんでした（CP-SAT status: {status}）"
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            raise OptimizationError(
+                f"最適化モデルを解けませんでした（CP-SAT status: {status}）"
+            )
+        plan = self._extract_plan(
+            solver,
+            variables,
+            source,
+            confirmed,
+            partition.undecided,
+            team_numbers,
+            leaders,
         )
+        return SolvedPlan(plan=plan, proven_optimal=status == cp_model.OPTIMAL)
 
     @staticmethod
     def _validate_members(members: list[Member]) -> None:
-        """時間帯別モデル作成前に名前の重複を拒否する。"""
+        """名前の重複を拒否する。出力と照合が名前で行われるため。"""
 
         duplicates = sorted(
             name
@@ -137,300 +185,218 @@ class TimeSlotTeamOptimizer:
             )
 
     @staticmethod
-    def _active_member_indexes(
-        members: tuple[ResolvedAvailability, ...],
+    def _top_team_supply_shortage(
+        confirmed: tuple[ResolvedAvailability, ...],
+        leader_index: dict[int, int | None],
         slots: tuple[TimeSlot, ...],
-    ) -> dict[int, tuple[int, ...]]:
-        """各時間スロットへ完全参加できるメンバーのIndexを返す。"""
+    ) -> str | None:
+        """上位隊に必要な、常時参加でVC可能なメンバーの不足を理由として返す。"""
 
-        return {
-            slot_index: tuple(
-                member_index
-                for member_index, availability in enumerate(members)
-                if availability.covers(slot.start_minutes, slot.end_minutes)
-            )
-            for slot_index, slot in enumerate(slots)
+        top_leaders = {
+            index
+            for number, index in leader_index.items()
+            if is_top_team(number) and index is not None
         }
-
-    def _validate_priority_vc_supply(
-        self,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-    ) -> None:
-        """A〜Cの固定人数を満たすVC参加者数を時間帯ごとに確認する。"""
-
-        required_vc = sum(
-            self.rules.team_master.teams_by_label[label].minimum_members
-            for label in self.rules.team_master.vc_required_teams
+        for number in range(1, TOP_TEAM_COUNT + 1):
+            index = leader_index[number]
+            if index is not None and not confirmed[index].member.has_vc:
+                return (
+                    f"第{number}隊のリーダーがVC不可のため、上位隊の条件を満たせません。"
+                    "リーダー一覧の順か参加者一覧を見直してください"
+                )
+        other_leaders = {
+            index for index in leader_index.values() if index is not None
+        } - top_leaders
+        required = TOP_TEAM_COUNT * (TOP_TEAM_SIZE - 1)
+        available = sum(
+            1
+            for index, availability in enumerate(confirmed)
+            if index not in top_leaders
+            and index not in other_leaders
+            and availability.member.has_vc
+            and all(
+                availability.covers(slot.start_minutes, slot.end_minutes)
+                for slot in slots
+            )
         )
-        for slot_index, slot in enumerate(slots):
-            actual_vc = sum(
-                members[index].member.has_vc for index in active_indexes[slot_index]
+        if available < required:
+            return (
+                "上位隊に必要な、全時間帯に参加しVC可能なメンバーが不足しています: "
+                f"{available}人（必要: {required}人）"
             )
-            if actual_vc < required_vc:
-                raise OptimizationError(
-                    f"{slot.start_minutes // 60:02d}:"
-                    f"{slot.start_minutes % 60:02d}のVC参加者が不足しています: "
-                    f"{actual_vc}人（必要: {required_vc}人）"
-                )
-
-    def _create_assignment_variables(
-        self,
-        model: cp_model.CpModel,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-    ) -> dict[AssignmentKey, cp_model.IntVar]:
-        """参加可能なメンバー・チーム・時間の組だけBool変数を生成する。"""
-
-        labels = self.rules.team_master.team_labels
-        return {
-            (member_index, team_index, slot_index): model.new_bool_var(
-                f"m_{member_index}_t_{label.value}_s_{slot_index}"
-            )
-            for slot_index in range(len(slots))
-            for member_index in active_indexes[slot_index]
-            for team_index, label in enumerate(labels)
-        }
-
-    def _add_assignment_and_capacity_constraints(
-        self,
-        model: cp_model.CpModel,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-    ) -> dict[tuple[int, int], cp_model.IntVar]:
-        """重複禁止とチーム別の時間帯人数上限を追加する。"""
-
-        labels = self.rules.team_master.team_labels
-        team_counts: dict[tuple[int, int], cp_model.IntVar] = {}
-        for slot_index in range(len(slots)):
-            for member_index in active_indexes[slot_index]:
-                model.add_exactly_one(
-                    assignments[member_index, team_index, slot_index]
-                    for team_index in range(len(labels))
-                )
-
-            for team_index, label in enumerate(labels):
-                definition = self.rules.team_master.teams_by_label[label]
-                count = model.new_int_var(
-                    0,
-                    definition.maximum_members,
-                    f"count_{label.value}_{slot_index}",
-                )
-                model.add(
-                    count
-                    == sum(
-                        assignments[member_index, team_index, slot_index]
-                        for member_index in active_indexes[slot_index]
-                    )
-                )
-                model.add(count <= definition.maximum_members)
-                if definition.minimum_members == definition.maximum_members:
-                    model.add(count == definition.minimum_members)
-                team_counts[team_index, slot_index] = count
-        return team_counts
-
-    def _add_vc_leader_and_power_constraints(
-        self,
-        model: cp_model.CpModel,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-    ) -> dict[tuple[int, int], cp_model.IntVar]:
-        """VC、集結主、代理集結主、時間帯別戦力関係を追加する。"""
-
-        labels = self.rules.team_master.team_labels
-        maximum_power = max(
-            definition.maximum_members for definition in self.rules.team_master.teams
-        ) * max(self.rules.tier_power.values())
-        team_power: dict[tuple[int, int], cp_model.IntVar] = {}
-        for slot_index in range(len(slots)):
-            active_by_name = {
-                members[index].member.name: index
-                for index in active_indexes[slot_index]
-            }
-            for team_index, label in enumerate(labels):
-                definition = self.rules.team_master.teams_by_label[label]
-                if definition.vc_required:
-                    for member_index in active_indexes[slot_index]:
-                        if not members[member_index].member.has_vc:
-                            model.add(
-                                assignments[member_index, team_index, slot_index] == 0
-                            )
-                self._fix_available_leader(
-                    model,
-                    definition,
-                    active_by_name,
-                    team_index,
-                    slot_index,
-                    assignments,
-                )
-                power = model.new_int_var(
-                    0,
-                    maximum_power,
-                    f"power_{label.value}_{slot_index}",
-                )
-                model.add(
-                    power
-                    == sum(
-                        assignments[member_index, team_index, slot_index]
-                        * self.rules.tier_power[members[member_index].member.tier]
-                        for member_index in active_indexes[slot_index]
-                    )
-                )
-                team_power[team_index, slot_index] = power
-
-            for relation in self.rules.team_master.strength_relations:
-                stronger_index = labels.index(relation.stronger)
-                weaker_index = labels.index(relation.weaker)
-                stronger = team_power[stronger_index, slot_index]
-                weaker = team_power[weaker_index, slot_index]
-                if relation.operator is StrengthOperator.GREATER_THAN:
-                    model.add(stronger > weaker)
-                else:
-                    model.add(stronger >= weaker)
-        return team_power
+        return None
 
     @staticmethod
-    def _fix_available_leader(
-        model: cp_model.CpModel,
-        definition: TeamDefinition,
-        active_by_name: dict[str, int],
-        team_index: int,
-        slot_index: int,
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-    ) -> None:
-        """固定集結主を優先し、不在時は最初の参加可能な代理を固定する。"""
+    def _create_variables(
+        confirmed: tuple[ResolvedAvailability, ...],
+        team_numbers: tuple[int, ...],
+        leader_index: dict[int, int | None],
+    ) -> _Model:
+        """所属と待機の変数を作り、1人1か所とリーダーの所属を加える。"""
 
-        leader_index = active_by_name.get(definition.rally_leader)
-        if leader_index is not None:
-            model.add(assignments[leader_index, team_index, slot_index] == 1)
-            return
-        for substitute in definition.substitute_leaders:
-            substitute_index = active_by_name.get(substitute)
-            if substitute_index is not None:
-                model.add(assignments[substitute_index, team_index, slot_index] == 1)
-                return
-
-    def _build_objective(
-        self,
-        model: cp_model.CpModel,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-        team_counts: dict[tuple[int, int], cp_model.IntVar],
-        team_power: dict[tuple[int, int], cp_model.IntVar],
-    ) -> cp_model.LinearExpr:
-        """不足、9人目、チーム移動を抑えつつ優先戦力を高める。"""
-
-        weights = self.rules.objective_weights
-        labels = self.rules.team_master.team_labels
-        underfilled: list[cp_model.IntVar] = []
-        ninth_members: list[cp_model.IntVar] = []
-        for team_index, label in enumerate(labels):
-            definition = self.rules.team_master.teams_by_label[label]
-            for slot_index in range(len(slots)):
-                count = team_counts[team_index, slot_index]
-                shortage = model.new_int_var(
-                    0,
-                    definition.minimum_members,
-                    f"shortage_{label.value}_{slot_index}",
-                )
-                model.add(shortage >= definition.minimum_members - count)
-                underfilled.append(shortage)
-                if definition.maximum_members > definition.minimum_members:
-                    extra = model.new_int_var(
-                        0,
-                        definition.maximum_members - definition.minimum_members,
-                        f"extra_{label.value}_{slot_index}",
-                    )
-                    model.add(extra >= count - definition.minimum_members)
-                    ninth_members.append(extra)
-
-        changes = self._team_change_variables(
-            model,
-            members,
-            slots,
-            active_indexes,
-            assignments,
-        )
-        priority_indexes = [
-            labels.index(label) for label in self.rules.team_master.vc_required_teams
-        ]
-        priority_power = sum(
-            team_power[team_index, slot_index]
-            * (len(priority_indexes) - priority_indexes.index(team_index))
-            for team_index in priority_indexes
-            for slot_index in range(len(slots))
-        )
-        return (
-            weights.priority_power * priority_power
-            - weights.underfilled_team * sum(underfilled)
-            - weights.member_team_change * sum(changes)
-            - weights.ninth_member * sum(ninth_members)
-        )
-
-    def _team_change_variables(
-        self,
-        model: cp_model.CpModel,
-        members: tuple[ResolvedAvailability, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-    ) -> list[cp_model.IntVar]:
-        """連続参加中に所属チームが変わったかを表す変数を生成する。"""
-
-        labels = self.rules.team_master.team_labels
-        changes: list[cp_model.IntVar] = []
-        for member_index in range(len(members)):
-            for slot_index in range(1, len(slots)):
-                if (
-                    member_index not in active_indexes[slot_index - 1]
-                    or member_index not in active_indexes[slot_index]
-                ):
-                    continue
-                changed = model.new_bool_var(f"changed_{member_index}_{slot_index}")
-                for team_index in range(len(labels)):
-                    previous = assignments[member_index, team_index, slot_index - 1]
-                    current = assignments[member_index, team_index, slot_index]
-                    model.add(previous - current <= changed)
-                    model.add(current - previous <= changed)
-                changes.append(changed)
-        return changes
-
-    def _extract_plan(
-        self,
-        solver: cp_model.CpSolver,
-        members: tuple[ResolvedAvailability, ...],
-        standby: tuple[Member, ...],
-        slots: tuple[TimeSlot, ...],
-        active_indexes: dict[int, tuple[int, ...]],
-        assignments: dict[AssignmentKey, cp_model.IntVar],
-    ) -> DynamicTeamPlan:
-        """Solverの値を時間帯別の不変ドメインモデルへ変換する。"""
-
-        labels = self.rules.team_master.team_labels
-        slot_assignments: list[SlotAssignment] = []
-        for team_index, label in enumerate(labels):
-            definition = self.rules.team_master.teams_by_label[label]
-            for slot_index, slot in enumerate(slots):
-                assigned = [
-                    members[member_index].member
-                    for member_index in active_indexes[slot_index]
-                    if solver.value(assignments[member_index, team_index, slot_index])
+        model = cp_model.CpModel()
+        membership = {
+            (index, number): model.new_bool_var(f"m{index}_t{number}")
+            for index in range(len(confirmed))
+            for number in team_numbers
+        }
+        waiting = {
+            index: model.new_bool_var(f"wait{index}") for index in range(len(confirmed))
+        }
+        for index in range(len(confirmed)):
+            model.add_exactly_one(
+                [
+                    *(membership[index, number] for number in team_numbers),
+                    waiting[index],
                 ]
-                assigned.sort(
-                    key=lambda member: (
-                        member.name != definition.rally_leader,
-                        member.name not in definition.substitute_leaders,
-                        -self.rules.tier_power[member.tier],
-                        member.name.casefold(),
+            )
+        for number, leader in leader_index.items():
+            if leader is not None:
+                model.add(membership[leader, number] == 1)
+        return _Model(model, membership, waiting)
+
+    def _add_sortie_constraints(
+        self,
+        variables: _Model,
+        confirmed: tuple[ResolvedAvailability, ...],
+        team_numbers: tuple[int, ...],
+        leader_index: dict[int, int | None],
+        slots: tuple[TimeSlot, ...],
+    ) -> _Levels:
+        """時間帯ごとの出撃人数、上位隊、上限、戦力の制約を加え、目的の段の項を返す。"""
+
+        model = variables.model
+        membership = variables.membership
+        present = {
+            slot: tuple(
+                index
+                for index, availability in enumerate(confirmed)
+                if availability.covers(slot.start_minutes, slot.end_minutes)
+            )
+            for slot in slots
+        }
+        levels = _Levels()
+        for number in team_numbers:
+            if is_top_team(number):
+                # 上位隊はVC可能で全時間帯に参加する人だけを所属させる（例外はリーダー）。
+                # 時間帯ごとの人数だけでは、途中で抜ける人と途中から来る人の入れ替わりを許す。
+                for index, availability in enumerate(confirmed):
+                    always = all(
+                        availability.covers(slot.start_minutes, slot.end_minutes)
+                        for slot in slots
+                    )
+                    is_leader = index == leader_index[number]
+                    if not availability.member.has_vc or not (always or is_leader):
+                        model.add(membership[index, number] == 0)
+            for slot in slots:
+                count = sum(membership[index, number] for index in present[slot])
+                if is_top_team(number):
+                    leader = leader_index[number]
+                    leader_present = leader is not None and leader in present[slot]
+                    model.add(
+                        count
+                        == (TOP_TEAM_SIZE if leader_present else TOP_TEAM_SIZE - 1)
+                    )
+                    continue
+                model.add(count <= self.rules.member_cap)
+                rest = model.new_bool_var(f"rest_t{number}_{slot.start_minutes}")
+                model.add(count + rest >= 1)
+                shortage = model.new_int_var(
+                    0, SORTIE_FLOOR, f"shortage_t{number}_{slot.start_minutes}"
+                )
+                model.add(count + shortage >= SORTIE_FLOOR)
+                squared = model.new_int_var(
+                    0, SORTIE_FLOOR**2, f"shortage_sq_t{number}_{slot.start_minutes}"
+                )
+                model.add_multiplication_equality(squared, [shortage, shortage])
+                if slot.start_minutes < EXTENSION_BOUNDARY_MINUTES:
+                    levels.rest_before.append((1, rest, 1))
+                    levels.under_before.append((1, squared, SORTIE_FLOOR**2))
+                else:
+                    levels.rest_after.append((1, rest, 1))
+                    levels.under_after.append((1, squared, SORTIE_FLOOR**2))
+
+        maximum_power = TOP_TEAM_SIZE * max(self.rules.tier_power.values())
+        for slot in slots:
+            power: dict[int, cp_model.IntVar] = {}
+            for number in team_numbers:
+                if not is_top_team(number):
+                    continue
+                variable = model.new_int_var(
+                    0, maximum_power, f"power_t{number}_{slot.start_minutes}"
+                )
+                model.add(
+                    variable
+                    == sum(
+                        membership[index, number]
+                        * self.rules.tier_power[confirmed[index].member.tier]
+                        for index in present[slot]
                     )
                 )
-                slot_assignments.append(SlotAssignment(label, slot, tuple(assigned)))
-        return DynamicTeamPlan(tuple(slot_assignments), standby)
+                power[number] = variable
+                levels.top_power.append(
+                    (TOP_TEAM_COUNT + 1 - number, variable, maximum_power)
+                )
+            for stronger, weaker in STRICTLY_STRONGER_PAIRS:
+                model.add(power[stronger] > power[weaker])
+            for stronger, weaker in AT_LEAST_AS_STRONG_PAIRS:
+                model.add(power[stronger] >= power[weaker])
+
+        return levels
+
+    @staticmethod
+    def _set_lexicographic_objective(
+        model: cp_model.CpModel,
+        levels: list[tuple[list[_Term], bool]],
+    ) -> None:
+        """段の順に上位を優先する重みで、1つの最小化の目的へまとめる。
+
+        各段の重みは、それより下の段の取り得る幅の合計より大きくし、上位の段を下位の段のために
+        犠牲にしない。最大化する段は符号を反転して最小化する。
+        """
+
+        weight = 1
+        terms: list[tuple[int, cp_model.IntVar]] = []
+        for level_terms, maximize in reversed(levels):
+            span = 0
+            for coefficient, variable, upper in level_terms:
+                span += coefficient * upper
+                terms.append(((-1 if maximize else 1) * weight * coefficient, variable))
+            weight *= span + 1
+        model.minimize(sum(coefficient * variable for coefficient, variable in terms))
+
+    @staticmethod
+    def _extract_plan(
+        solver: cp_model.CpSolver,
+        variables: _Model,
+        source: list[Member],
+        confirmed: tuple[ResolvedAvailability, ...],
+        undecided: tuple[Member, ...],
+        team_numbers: tuple[int, ...],
+        leaders: tuple[Member, ...],
+    ) -> TeamPlan:
+        """Solverの値を所属固定の編成へ変換する。並びは参加者一覧の順で決める。"""
+
+        order = {member: position for position, member in enumerate(source)}
+        teams: list[TeamMembership] = []
+        for number, leader in zip(team_numbers, leaders, strict=True):
+            assigned = sorted(
+                (
+                    availability.member
+                    for index, availability in enumerate(confirmed)
+                    if solver.value(variables.membership[index, number])
+                ),
+                key=lambda member: (member != leader, order[member]),
+            )
+            teams.append(TeamMembership(number, leader, tuple(assigned)))
+        waiting = tuple(
+            sorted(
+                (
+                    availability.member
+                    for index, availability in enumerate(confirmed)
+                    if solver.value(variables.waiting[index])
+                ),
+                key=lambda member: order[member],
+            )
+        )
+        return TeamPlan(teams=tuple(teams), waiting=waiting, undecided=undecided)

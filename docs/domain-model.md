@@ -2,14 +2,15 @@
 
 ## コアドメインと境界
 
-コアドメインは「KvKチーム編成」です。1回のKvKイベントについて、参加可能な`Member`を
-時間帯ごとに`Team`へ割り当て、必須条件を満たした編成と運用上の警告を生成します。
+コアドメインは「KvKチーム編成」です。1回のKvKイベントについて、リーダー一覧から作る隊へ
+参加時間が確定した`Member`の所属を固定して割り当て、時間帯ごとの出撃を所属と参加時間から計算し、
+必須条件を満たした編成と運用上の警告を生成します。
 
 境界づけられたコンテキストは次の2つです（ADR 0021）。
 
 | コンテキスト | パッケージ | 責務 |
 |---|---|---|
-| KvKチーム編成 | `team_building` | 参加可能な参加者を時間帯ごとにチームへ割り当て、必須条件と警告を扱う |
+| KvKチーム編成 | `team_building` | 参加者を隊へ所属させ、時間帯ごとの出撃、必須条件、警告を扱う |
 | 戦闘タイミング | `battle_timing` | 行軍秒数、到着の同期、集結タイムライン、周期、占領時間の判定を秒単位で扱う |
 
 コンテキストどうしは互いをimportせず、モデルを共有しません。同じ語を両方で使う場合も、
@@ -24,24 +25,28 @@
 | 参加者 | `Member` | 名前で識別され、Tier、VC、参加可能時間を持つエンティティ |
 | 参加可能時間 | `Availability` | `Member`が配置可能な半開区間と時間確定状態 |
 | 時間枠 | `TimeSlot` | 開始を含み終了を含まない編成単位 |
-| チーム | `Team` / `TeamLabel` | A〜Kで識別される配置先 |
-| チーム定義 | `TeamDefinition` | 集結主、代理、人数、VCなどのポリシー値 |
-| チームマスタ | `TeamMaster` | イベント時間と全Teamのポリシーを持つ不変なドメイン設定 |
-| 編成候補 | `DynamicTeamPlan` | 全時間枠の配置と待機`Member`を持つ、検証前の候補 |
-| 検証済み編成 | `ValidatedTeamPlan` | 必須条件を満たすことを確認した出力可能な編成と、その検証結果（警告、指標、待機）。必須条件エラーを含む検証結果からは生成できない |
+| 隊 | `TeamMembership`、番号は`int` | 所属が固定されたメンバーの集まり。リーダー一覧の番号で第1隊から数える |
+| 上位隊 | `is_top_team`、`TOP_TEAM_COUNT` | 第1〜3隊。リーダーを含めて8人固定（`TOP_TEAM_SIZE`。別枠のリーダーの隊は7人）で、リーダー以外は全時間帯に参加する |
+| リーダー | `TeamMembership.leader` | 隊を率いるメンバー。リーダー一覧の順が隊の番号になる |
+| 所属 | `TeamMembership.members` | メンバーが属する隊。時間帯をまたいで変わらない |
+| 出撃 | `Sortie` | ある時間帯に隊として出撃するメンバー。所属メンバーのうち参加している人 |
+| 休止 | `ValidationCode.REST` | 所属メンバーの参加が0人になる時間帯。延長境界時刻より前は下限の不足 |
+| 延長境界時刻 | `EXTENSION_BOUNDARY_MINUTES` | 24:00。人数不足を延長保留として扱い始める時刻 |
+| 待機 | `TeamPlan.waiting` | 人数の上限のため、どの隊にも所属しないメンバー（FRM-033） |
+| 別枠 | `TeamPlan.undecided` | 参加時間未定のため、どの隊にも入れないメンバー（FRM-060） |
+| 運用者の指定 | `OperatorSpecification` | 1回の編成で運用者が渡す指定の不変な値。現在はリーダー一覧（`MemberRef`の組） |
+| チームマスタ | `TeamMaster` | 戦闘時間と出撃人数の上限を持つ常設の既定値 |
+| 編成候補 | `TeamPlan` | 隊ごとの所属、待機、別枠を持つ、検証前の候補 |
+| 検証済み編成 | `ValidatedTeamPlan` | 必須条件を満たすことを確認した出力可能な編成と、その検証結果（警告、出撃の指標、待機、別枠）、最適性。必須条件エラーを含む検証結果からは生成できない |
 | 必須条件 | `Invariant` | 違反時に編成を出力しないドメインルール |
 | 警告 | `Warning` | 編成を出力しながら運用者へ知らせる不足 |
 | 目的関数 | `Objective` | 複数の有効な編成から望ましいものを選ぶ優先度 |
-| 固定集結主 | `RallyLeader` | 指定`Team`へ固定される`Member` |
-| 代理集結主 | `SubstituteLeader` | 固定集結主不在時に指定`Team`へ置く`Member` |
-| 待機 | `Standby` | 開始時刻未確定のため配置へ算入しない状態 |
 
-目標仕様（`docs/requirements/team-building/`、ADR 0023）では、所属を固定した「隊」、リーダー、
-代理リーダー、上位隊、別枠、出撃人数、応援などの用語を使います。対応の候補は要件定義書の用語表に
-あり、実装Issueで導入するときにこの表へコード上の用語を追加します。特に、目標仕様の「待機」は
-人数の上限のためにどの隊にも所属できなかったメンバーを指し、現行の待機（`Standby`）とは別の
-概念です。現行の`Standby`は、目標仕様の別枠（参加時間未定）に当たります。`Standby`を目標仕様の
-待機へ流用しません。
+上の表は所属固定のモデル（ADR 0034）の用語です。応援、出撃開始時刻、代理リーダー（当面置かない、
+FRM-003）などの目標仕様の用語は、要件定義書の用語表にあり、実装Issueで導入するときにこの表へ
+追加します。以前の固定集結主（`RallyLeader`）、代理集結主（`SubstituteLeader`）、時間帯ごとに移れる
+`DynamicTeamPlan`、開始時刻未確定の`Standby`は使いません。以前の`Standby`は別枠に当たり、
+待機とは別の概念です。
 
 新しいコードで`Participant`、`RosterMember`、`Squad`などの同義語を増やしません。用語を
 変更する場合は、コード、文書、入出力の影響をADRで決定します。
@@ -63,7 +68,7 @@
 | 占領時間 | 同盟が累計で占領した秒数 | `occupation-judge.md` |
 | 確定まで | 勝利が確定するまでに追加で必要な占領時間 | `occupation-judge.md` |
 
-「集結」は両方のコンテキストに現れますが、「KvKチーム編成」の固定集結主（`RallyLeader`）と、
+「集結」は両方のコンテキストに現れますが、「KvKチーム編成」の隊のリーダーと、
 「戦闘タイミング」の集結作戦の役割は別の概念です。モデルを共有しません。
 
 ## 戦術的モデル
@@ -75,22 +80,32 @@
 
 ### 値オブジェクトとドメインポリシー
 
-- `Tier`, `Availability`, `TimeSlot`, `TeamLabel`
-- `EventTimeSettings`, `TeamDefinition`, `StrengthRelation`, `ObjectiveWeights`
-- `TeamMaster`, `KvKRules`: 1イベントの編成ポリシーを構成する不変値
+- `Tier`, `Availability`, `TimeSlot`, `MemberRef`
+- `EventTimeSettings`
+- 利用者が決めた固定値: `TOP_TEAM_COUNT`, `TOP_TEAM_SIZE`, `SORTIE_FLOOR`, `EXTENSION_BOUNDARY_MINUTES`,
+  `SLOT_MINUTES`（`domain/team.py`。ADR 0034）
+- 現行の規則: 戦力関係`STRICTLY_STRONGER_PAIRS`, `AT_LEAST_AS_STRONG_PAIRS`（`domain/team.py`）。固定値ではなく、
+  分割案の3でFRM-027へ置き換えるまで維持する
+- `TeamMaster`, `KvKRules`, `OperatorSpecification`: 1イベントの編成ポリシーと運用者の指定を構成する不変値
 
 ### 集約と結果型
 
-`DynamicTeamPlan`は全時間枠の整合性をまとめて扱う編成候補です。Optimizerが候補を作り、
-独立Validatorが検証します。必須条件を満たした候補だけが、検証結果と一緒に`ValidatedTeamPlan`
-になります。Exporterは`ValidatedTeamPlan`だけを受け取るため、未検証の候補を誤って出力できません。
+`TeamPlan`は隊ごとの所属、待機、別枠をまとめて扱う編成候補です。Optimizerが候補を作り、
+独立Validatorが参加者一覧と運用者の指定から計算し直して検証します。必須条件を満たした候補だけが、
+検証結果と一緒に`ValidatedTeamPlan`になります。Exporterは`ValidatedTeamPlan`だけを受け取るため、
+未検証の候補を誤って出力できません。
 
-`TeamMaster`は一貫して読み込むポリシー集合です。各`Member`や`Team`へ形式的な
+Optimizerの結果は`SolvedPlan`（編成と最適性）と`ProvenInfeasible`（理由）で、アプリケーションの
+境界（`application/ports.py`）に置きます。時間切れは結果にせず例外として送出します（ADR 0019）。
+
+`TeamMaster`と`OperatorSpecification`は一貫して読み込む値の集合です。各`Member`や隊へ形式的な
 Repositoryを作らず、永続化の整合単位が明確なものにだけRepository境界を置きます。
 
 ### ドメインサービス
 
 - 参加可能時間の解決と時間枠への分割
+- リーダー一覧の参加者への解決（`resolve_leaders`）
+- 所属と参加時間からの出撃の計算（`sorties`）
 - 編成の必須条件検証と警告生成
 - ソルバーへ渡す編成ポリシーの表現
 
@@ -106,10 +121,12 @@ Markdown、JSON、ファイルパス、OR-Toolsを必要としない形を目標
 
 ### アプリケーション
 
-ユースケース`BuildTeamPlan`はドメイン型の`Member`一覧を受け取り、Optimizer境界とValidator境界を
-調整して`ValidatedTeamPlan`を返します。再試行と、上限に達したときの`BuildError`を持ちますが、
-Markdownの解析・出力や、編成人数、VC条件そのものは決めません。チームマスタは、呼び出し側が
-Repositoryから読み込んで`KvKRules`に渡します。
+ユースケース`BuildTeamPlan`はドメイン型の`Member`一覧と`OperatorSpecification`を受け取り、
+Optimizer境界とValidator境界を調整して`ValidatedTeamPlan`を返します。リーダーの解決の失敗
+（`SpecificationError`）、解なしの証明（`NoValidPlanError`）、下限の不足（`LowerBoundShortfallError`、
+最適性を示せなければ`ShortfallUndeterminedError`）、再試行の上限（`BuildError`）を区別しますが、
+Markdownの解析・出力や、編成人数、VC条件そのものは決めません。チームマスタと運用者の指定は、
+呼び出し側がRepositoryから読み込んで渡します。
 
 入力の解析と出力はインターフェース層が組み立てます。CLIでは`interfaces/cli/team_builder.py`の
 `TeamBuilder`が、Markdown Parser、`BuildTeamPlan`、Markdown Exporterをこの順に呼び出します。
@@ -118,7 +135,7 @@ Web Interface（#21）は、同じ`BuildTeamPlan`を別の入出力で呼び出�
 ### アダプターとインフラストラクチャ
 
 - 入力側: CLI、将来のWeb UI、Markdown参加者Parser
-- 出力・接続側: JSONチームマスタRepository、OR-Tools CP-SAT Optimizer
+- 出力・接続側: JSONチームマスタRepository、運用者の指定（`settings.json`）Repository、OR-Tools CP-SAT Optimizer
 - 表示側: Markdown Exporter、将来のWeb View Model Mapper
 
 アダプターは外部データをドメイン型へ変換し、外部形式固有の辞書、正規表現、ファイルパス、
@@ -131,19 +148,21 @@ src/kvk_team/
   team_building/
     domain/
       member.py           参加者、Tier、参加可能時間
-      schedule.py         時間枠、編成候補
-      team.py             チーム
-      team_master.py      チームマスタ、チーム定義、戦力関係
+      team.py             隊の番号、固定値（上位隊、出撃人数の下限、延長境界時刻、30分単位）、現行の戦力関係
+      specification.py    運用者の指定、リーダーの解決
+      plan.py             時間枠、所属固定の編成候補、出撃の計算
+      team_master.py      チームマスタ（戦闘時間、上限）
       rules.py            編成ルール（チームマスタを必須で受け取る）
       availability.py     参加可能時間の解決
       validation.py       必須条件の独立検証、警告、ValidatedTeamPlan
     application/
-      ports.py            Optimizer、Validator、Repositoryの境界
+      ports.py            Optimizer、Validator、Repositoryの境界、Optimizerの結果の型
       build_team_plan.py  最適化、検証、再試行を調整し、ValidatedTeamPlanを返すユースケース
     adapters/
       input/markdown_member_parser.py
-      output/dynamic_markdown_exporter.py
-      persistence/json_team_master_repository.py、team_master.json
+      output/team_plan_markdown_exporter.py
+      persistence/json_team_master_repository.py、team_master.json、
+                  json_operator_settings_repository.py、settings.example.json
       optimization/cp_sat_team_optimizer.py、errors.py
   battle_timing/          （各機能のIssueで追加する）
     domain/

@@ -1,0 +1,15 @@
+{
+  "leaders": [
+    {"name": "山田", "alliance": "SKY"},
+    {"name": "さくら", "alliance": "FOX"},
+    {"name": "taro", "alliance": "SUN"},
+    {"name": "わんこ", "alliance": "SKY"},
+    {"name": "もーもー", "alliance": "MOON"},
+    {"name": "いろは", "alliance": "SKY"},
+    {"name": "ハルカ", "alliance": "SUN"},
+    {"name": "mt", "alliance": "FOX"},
+    {"name": "もも", "alliance": "MOON"},
+    {"name": "ミカン", "alliance": "SUN"},
+    {"name": "翡翠", "alliance": "MOON"}
+  ]
+}
