@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from kvk_team.team_building.domain.member import Member
+from kvk_team.team_building.domain.specification import OperatorSpecification
 from kvk_team.team_building.domain.validation import ValidatedTeamPlan
 
 
@@ -16,9 +17,13 @@ class ParserPort(Protocol):
 
 
 class BuildTeamPlanPort(Protocol):
-    """参加者から検証済み編成を作るユースケースの境界。"""
+    """参加者と運用者の指定から検証済み編成を作るユースケースの境界。"""
 
-    def execute(self, members: Sequence[Member]) -> ValidatedTeamPlan:
+    def execute(
+        self,
+        members: Sequence[Member],
+        specification: OperatorSpecification,
+    ) -> ValidatedTeamPlan:
         """検証済み編成を返す。"""
 
 
@@ -40,9 +45,9 @@ class TeamBuilder:
     build_team_plan: BuildTeamPlanPort
     exporter: ExporterPort
 
-    def build(self, markdown: str) -> str:
-        """参加者Markdownから、検証済みの時間帯別編成Markdownを返す。"""
+    def build(self, markdown: str, specification: OperatorSpecification) -> str:
+        """参加者Markdownから、検証済みの所属固定の編成Markdownを返す。"""
 
         members = self.parser.parse(markdown)
-        validated = self.build_team_plan.execute(members)
+        validated = self.build_team_plan.execute(members, specification)
         return self.exporter.export(validated)

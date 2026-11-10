@@ -34,9 +34,14 @@ OR-Tools固有の表現から独立させる。
 - 入力記法または時刻抽出: `src/kvk_team/team_building/adapters/input/`とParserテスト
 - 参加可能時間または半開区間: `src/kvk_team/team_building/domain/availability.py`と参加時間テスト
 - 必須の編成制約または目的関数: `src/kvk_team/team_building/adapters/optimization/cp_sat_team_optimizer.py`
-- 運用値: `src/kvk_team/team_building/adapters/persistence/team_master.json`とRepository／Model検証
+- 運用値: 戦闘時間と上限の常設の既定値は`src/kvk_team/team_building/adapters/persistence/team_master.json`、
+  リーダー一覧などの運用者の指定は`settings.json`（同梱の架空の例は
+  `src/kvk_team/team_building/adapters/persistence/settings.example.json`、読み込みは
+  `src/kvk_team/team_building/adapters/persistence/json_operator_settings_repository.py`）と
+  `src/kvk_team/team_building/domain/specification.py`。利用者が決めた固定値は
+  `src/kvk_team/team_building/domain/team.py`（ADR 0034）
 - 独立した有効性と警告: `src/kvk_team/team_building/domain/validation.py`
-- Markdown表現: `src/kvk_team/team_building/adapters/output/dynamic_markdown_exporter.py`
+- Markdown表現: `src/kvk_team/team_building/adapters/output/team_plan_markdown_exporter.py`
 - 再試行とエラー伝播: `src/kvk_team/team_building/application/build_team_plan.py`とCLI境界
 
 CLIや将来のUIへルールを複製しない。目標とするアプリケーションのユースケースの外側に

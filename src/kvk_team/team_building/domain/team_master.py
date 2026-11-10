@@ -1,124 +1,81 @@
-"""永続化方式に依存しないチームマスタのドメインモデル。"""
+"""永続化方式に依存しないチームマスタのドメインモデル。
 
-from collections.abc import Mapping
+チームマスタはRepositoryで管理する常設の既定値（戦闘時間、出撃人数の上限）だけを持つ。
+リーダー一覧などの個人名を含む運用者の指定は、イベントのフォルダの`settings.json`から
+読む（DAT-007、ADR 0029、ADR 0034）。
+"""
+
 from dataclasses import dataclass
-from enum import Enum
-from types import MappingProxyType
 
 from kvk_team.team_building.domain.member import MINUTES_PER_HOUR
-from kvk_team.team_building.domain.team import TeamLabel
+from kvk_team.team_building.domain.team import SLOT_MINUTES, SORTIE_FLOOR
 
-
-class StrengthOperator(str, Enum):
-    """チーム間の戦力比較演算子。"""
-
-    GREATER_THAN = ">"
-    GREATER_THAN_OR_EQUAL = ">="
-
-
-@dataclass(frozen=True, slots=True)
-class TeamDefinition:
-    """1チームの編成条件と運用情報。"""
-
-    label: TeamLabel
-    rally_leader: str
-    substitute_leaders: tuple[str, ...]
-    role: str
-    minimum_members: int
-    maximum_members: int
-    vc_required: bool
-    notes: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        """チームマスタ内で成立しない人数設定を拒否する。"""
-
-        if not self.rally_leader.strip():
-            raise ValueError("集結主を指定してください")
-        if self.minimum_members < 1:
-            raise ValueError("チームの最低人数は1人以上にしてください")
-        if self.maximum_members < self.minimum_members:
-            raise ValueError("チームの最大人数は最低人数以上にしてください")
-
-
-@dataclass(frozen=True, slots=True)
-class StrengthRelation:
-    """2チーム間で維持する戦力関係。"""
-
-    stronger: TeamLabel
-    weaker: TeamLabel
-    operator: StrengthOperator
+TEAM_MASTER_SCHEMA_VERSION = 2
+"""所属固定のモデルのチームマスタの版。1は隊ごとの集結主を持つ以前の形。"""
 
 
 @dataclass(frozen=True, slots=True)
 class EventTimeSettings:
-    """時間帯別編成に使用するイベント時間設定。"""
+    """時間帯別編成に使用するイベント時間設定。時間帯の長さは固定値の30分とする（ADR 0034）。"""
 
     start_minutes: int
     end_minutes: int
-    slot_minutes: int
 
     def __post_init__(self) -> None:
-        """時間スロットを正しく分割できない設定を拒否する。"""
+        """30分の区切りに乗らない戦闘時間を拒否する。
+
+        開始が区切りに乗らないと、時間帯が延長境界時刻（24:00）をまたぎ、境界より前か後かが決まらない。
+        """
 
         duration = self.end_minutes - self.start_minutes
         if duration <= 0:
             raise ValueError("イベント終了時刻は開始時刻より後にしてください")
-        if self.slot_minutes <= 0 or duration % self.slot_minutes:
-            raise ValueError("イベント時間を等分できる時間刻みを指定してください")
+        if self.start_minutes % SLOT_MINUTES:
+            raise ValueError(
+                f"戦闘開始は{SLOT_MINUTES}分の区切り（例: 21:00、21:30）にしてください"
+            )
+        if duration % SLOT_MINUTES:
+            raise ValueError(
+                f"戦闘時間は{SLOT_MINUTES}分の時間帯へ等分できる長さにしてください"
+            )
+
+    @property
+    def slot_minutes(self) -> int:
+        """時間帯の長さ（分）を返す。"""
+
+        return SLOT_MINUTES
 
     @property
     def slot_starts(self) -> tuple[int, ...]:
-        """各時間スロットの開始時刻を返す。"""
+        """各時間スロットの開始時刻を返す。
+
+        本体のコードは`KvKRules.time_slots`を使う。テストの生成戦略は、本体と別に時間帯を数えるため
+        こちらを使う。
+        """
 
         return tuple(range(self.start_minutes, self.end_minutes, self.slot_minutes))
 
 
 @dataclass(frozen=True, slots=True)
 class TeamMaster:
-    """1つのKvKイベント形式で使用するチームマスタ全体。"""
+    """常設の既定値。"""
 
     schema_version: int
     event_time: EventTimeSettings
-    teams: tuple[TeamDefinition, ...]
-    strength_relations: tuple[StrengthRelation, ...]
+    member_cap: int
+    """第4隊以降の出撃人数の上限（FRM-030の全隊共通の値）。"""
 
     def __post_init__(self) -> None:
-        """重複や参照不整合を含むマスタを拒否する。"""
+        """この版で扱えない値を拒否する。"""
 
-        if self.schema_version < 1:
-            raise ValueError("schema_versionは1以上にしてください")
-        labels = tuple(team.label for team in self.teams)
-        if len(labels) != len(set(labels)):
-            raise ValueError("チームラベルが重複しています")
-        if set(labels) != set(TeamLabel):
-            raise ValueError("A〜Kの全チームを1件ずつ定義してください")
-        for relation in self.strength_relations:
-            if relation.stronger not in labels or relation.weaker not in labels:
-                raise ValueError("戦力関係が未定義のチームを参照しています")
-
-    @property
-    def team_labels(self) -> tuple[TeamLabel, ...]:
-        """マスタの定義順でチームラベルを返す。"""
-
-        return tuple(team.label for team in self.teams)
-
-    @property
-    def teams_by_label(self) -> Mapping[TeamLabel, TeamDefinition]:
-        """チームラベルから定義を参照する不変Mappingを返す。"""
-
-        return MappingProxyType({team.label: team for team in self.teams})
-
-    @property
-    def rally_leaders(self) -> Mapping[TeamLabel, str]:
-        """チームごとの固定集結主を返す。"""
-
-        return MappingProxyType({team.label: team.rally_leader for team in self.teams})
-
-    @property
-    def vc_required_teams(self) -> tuple[TeamLabel, ...]:
-        """全時間帯でVCを必須とするチームを返す。"""
-
-        return tuple(team.label for team in self.teams if team.vc_required)
+        if self.schema_version != TEAM_MASTER_SCHEMA_VERSION:
+            raise ValueError(
+                f"schema_versionは{TEAM_MASTER_SCHEMA_VERSION}にしてください"
+            )
+        if self.member_cap < SORTIE_FLOOR:
+            raise ValueError(
+                f"出撃人数の上限は下限の{SORTIE_FLOOR}人以上にしてください"
+            )
 
 
 def parse_clock(value: str) -> int:

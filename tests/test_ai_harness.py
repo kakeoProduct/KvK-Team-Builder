@@ -1920,3 +1920,22 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
     with (AGENT_DIRECTORY / "kvk-requirements-reviewer.toml").open("rb") as source:
         instructions = tomllib.load(source)["developer_instructions"]
     assert _compact("AGENTS.mdの伏せる語の規則（ADR 0026）") in _compact(instructions)
+
+
+def test_rule_change_skill_points_to_existing_source_files() -> None:
+    """`$change-kvk-rules`の変更先が実在するファイルを指す。
+
+    モジュールを置き換えたときに、削除したファイルを案内し続けないようにする（ADR 0034）。
+    """
+
+    text = (SKILL_DIRECTORY / "change-kvk-rules" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    paths = re.findall(r"`(src/[^`*]+\.(?:py|json))`", text)
+
+    assert len(paths) >= 5, paths
+    missing = [path for path in paths if not (PROJECT_ROOT / path).is_file()]
+    assert missing == []
+    assert (
+        "src/kvk_team/team_building/adapters/persistence/settings.example.json" in paths
+    )
