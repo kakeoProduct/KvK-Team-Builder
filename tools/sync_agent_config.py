@@ -25,7 +25,7 @@ CLAUDE_AGENT_DIRECTORY = Path(".claude") / "agents"
 CODEX_ONLY_SKILLS = frozenset({"codex-handoff", "git-guardrails-codex"})
 # Codex UI専用のメタデータはClaude Codeでは使用しない。
 CODEX_METADATA_DIRECTORY = "agents"
-# Review Agentは編集Toolを持たず、読み取りと差分確認だけを行う。
+# Review Agentは編集Toolを持たず、Bashは確認用のScriptだけをHookが通す（ADR 0033）。
 CLAUDE_REVIEWER_TOOLS = "Read, Grep, Glob, Bash"
 # 既定と異なるToolが必要なAgent。証拠Reviewerは出典を開くがShellを使わない。
 CLAUDE_AGENT_TOOLS = {"evidence-reviewer": "Read, Grep, Glob, WebSearch, WebFetch"}

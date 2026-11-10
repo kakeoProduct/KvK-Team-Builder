@@ -17,7 +17,10 @@
 | [PR #13のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T130841Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 21 |
 | [Review AgentとSkillの旧ルールの語を所属固定のモデルへ合わせる](sessions/2026/2026-11-10T120730Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 14 |
 | [PR #10のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T115838Z-browser-mcp-merge-dev.md) | current | harness | 0 |
+| [Review AgentのBashのbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T114901Z-review-agents-merge-dev.md) | current | harness | 3 |
 | [実装Issue 2のPR (a): 所属固定のモデル](sessions/2026/2026-11-10T011001Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | implementation, team-building | 53 |
+| [Review AgentのScript化の残りのNiceと振り返りの数え方を直す](sessions/2026/2026-11-09T141516Z-review-agents-remaining-nice.md) | current | ai-harness | 9 |
+| [Review AgentのBashを固定のScriptと閉じた文法に限り、Git保護を2つの判定にする](sessions/2026/2026-11-08T163438Z-review-agents-review-query.md) | current | ai-harness | 30 |
 | [通常モードのグループの要件を要件定義書へ反映](sessions/2026/2026-11-08T153714Z-normal-mode-grouping-requirements.md) | current | requirements, review | 7 |
 | [安全策のHookの例外処理をそろえ、Review AgentのBashの扱いを別の変更へ分ける](sessions/2026/2026-11-05T130722Z-align-hook-parse-failures.md) | current | ai-harness | 4 |
 | [ADR 0032の一覧の確認の文と根拠を直す](sessions/2026/2026-11-04T160343Z-2a4b6c67-98a8-4cf5-a54b-e05096654ae5.md) | current | ai-harness, web-tools | 1 |

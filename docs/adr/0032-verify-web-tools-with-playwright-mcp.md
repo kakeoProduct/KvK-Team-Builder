@@ -109,7 +109,7 @@ Playwrightの版と結び付く。Debianの`chromium`ならaptで共有ライブ
 - Playwright MCPの版を上げるときは、Toolの追加と改名、`filename`や`paths`に当たる引数、`_meta`のようにサーバーの共通
   処理が読む引数、ダウンロードのような引数なしの書き込みの変更を確かめる。拒否するToolの名前と、ファイルにつながる引数名は、インストールした版の一覧と
   テストで照合する
-- Hookと`permissions.deny`の変更は、Claude Codeの新しいSessionから有効になる。実機での発火は、変更後の新しい主Session
+- Hookの登録と`permissions.deny`の変更は、Claude Codeの新しいSessionから有効になる。実機での発火は、変更後の新しい主Session
   （Claude Code 2.1.317、Playwright MCP 0.0.83）で、Playwright MCPのToolの呼び出しと一覧により次のとおり確かめた（2026-11-04）
   - `filename`に`page.png`を渡した`browser_take_screenshot`は`restrict_browser_files.py`が拒否し、ファイルは作られなかった
   - 名前なしの画面写真は`tmp/playwright-mcp/`へ保存され、引数なしの`browser_snapshot`も通った
