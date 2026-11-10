@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [PR #13のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T130841Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 21 |
 | [Review AgentとSkillの旧ルールの語を所属固定のモデルへ合わせる](sessions/2026/2026-11-10T120730Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 14 |
 | [PR #10のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T115838Z-browser-mcp-merge-dev.md) | current | harness | 0 |
 | [実装Issue 2のPR (a): 所属固定のモデル](sessions/2026/2026-11-10T011001Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | implementation, team-building | 53 |
