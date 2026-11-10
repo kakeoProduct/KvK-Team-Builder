@@ -224,7 +224,8 @@ Pull Requestがまだない場合は、`$create-github-pr`が作成後に投稿�
 親セッションの実行時
 権限で上書きされる場合があるため、設定値だけを読み取り専用の保証として扱いません。
 Claude Codeでは、`.claude/settings.json`のPreToolUse Hookが、正本で読み取り専用と宣言した
-Agentの書き込み得るTool呼び出しを、権限モードにかかわらず拒否します。
+Agentの書き込み得るTool呼び出しを、権限モードにかかわらず拒否します。レビュー担当の検索、履歴、
+テストは`python tools/review_query.py`で行います（ADR 0033）。
 修正を依頼された場合も、レビューを完了して合意した指摘だけを通常の実装フローで
 直します。単純な質問や差分のない説明では、不要な並列レビューを開始しません。
 
@@ -318,4 +319,6 @@ ADR、Domain Model、Review Agentへ反映します。`$review-kvk-change`の自
   `browser_file_upload`は使わない。読み取り専用のレビュー担当にはブラウザを
   使わせず、主エージェントが確かめた結果と画面写真のパスを渡す
 - テスト成功だけでなく、警告と生成結果が運用上読めることも確認する。編成または表示を
-  変更した場合は`python tools/preview_output.py`で自己チェック、警告、前回との差分を読む
+  変更した場合は`python tools/preview_output.py`で自己チェック、警告、前回との差分を読む。
+  読み取り専用のレビュー担当はこれを実行できないため、主エージェントが作った出力のパスを渡す
+  （`$review-kvk-change`、ADR 0033）

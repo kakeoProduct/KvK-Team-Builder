@@ -1455,6 +1455,7 @@ def test_review_improves_itself_after_each_response() -> None:
         "繰り返しを終えた後に残った案は、投稿したレビュー結果に残し、別の場所へ写さない",
         "先に後者の回数を0に戻す。そのうえで、今回その分類が現れたら1を足す",
         "出所の列だけの変更は見直しに含めない",
+        "句点や文の形だけの修正のように、確かめる内容を変えない変更も見直しに含めない",
         "委譲の前に伝える「今回の対応で『確かめること』を変えた分類」で決める",
         "差分だけでは決めない",
         "差分と照らして申告を確かめる",
@@ -1717,13 +1718,23 @@ def test_claude_review_agents_have_no_edit_tools() -> None:
         assert frontmatter["permissionMode"] == "plan"
         assert frontmatter["effort"] == "high"
         tools = {tool.strip() for tool in str(frontmatter["tools"]).split(",")}
-        assert tools.isdisjoint({"Edit", "Write", "NotebookEdit"})
         if path.stem == EVIDENCE_REVIEW_AGENT:
             # 出典を開いて照合するため、Web取得を持ちShellを持たない。
-            assert {"WebSearch", "WebFetch"} <= tools
-            assert "Bash" not in tools
+            assert tools == {"Read", "Grep", "Glob", "WebSearch", "WebFetch"}
+        else:
+            # Bashは残すが、Hookが固定のScriptの呼び出しだけを通す（ADR 0033）。
+            assert tools == {"Read", "Grep", "Glob", "Bash"}
         body = path.read_text(encoding="utf-8")
         assert definition["developer_instructions"].strip() in body
+
+
+def test_review_agents_are_told_to_use_the_review_query_script() -> None:
+    """担当はShellの代わりに固定のScriptで検索、履歴、テストを扱う。"""
+
+    for name in CODE_REVIEW_AGENTS:
+        with (AGENT_DIRECTORY / f"{name}.toml").open("rb") as source:
+            instructions = tomllib.load(source)["developer_instructions"]
+        assert "python tools/review_query.py" in instructions, name
 
 
 def test_sync_detects_and_repairs_drift(tmp_path: Path) -> None:

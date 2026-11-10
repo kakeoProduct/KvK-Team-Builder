@@ -2,6 +2,9 @@
 
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -148,6 +151,34 @@ def test_main_reports_build_error_without_writing(
     assert status == 2
     assert not output.exists()
     assert "必須条件を満たす編成がありません" in capsys.readouterr().err
+
+
+def test_script_reads_kvk_team_from_its_own_working_tree(tmp_path: Path) -> None:
+    """worktreeでも、editable installの先ではなく同じ作業ツリーの`src`を読む。"""
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    shutil.copy(PREVIEW_SCRIPT, tools / "preview_output.py")
+    package = tmp_path / "src" / "kvk_team"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "import sys\nprint('この作業ツリーのsrc')\nsys.exit(0)\n", encoding="utf-8"
+    )
+
+    completed = subprocess.run(
+        [sys.executable, str(tools / "preview_output.py"), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        # WindowsではSYSTEMROOTなどがないとPythonが起動しないため、環境を引き継ぐ。
+        env={
+            **{k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+            "PYTHONUTF8": "1",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "この作業ツリーのsrc" in completed.stdout.decode("utf-8")
 
 
 @pytest.mark.parametrize(

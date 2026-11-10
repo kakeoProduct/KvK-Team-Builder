@@ -292,8 +292,8 @@ Claude Codeでは、以下の`$skill-name`を`/skill-name`に読み替えます�
 
 | Event | Script | 動作 |
 |---|---|---|
-| `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する。解析できないHook入力は拒否する。事故を防ぐための照合であり、コマンドのうち字句解析できない区間は判定せずに通す |
-| `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentに、許可した確認コマンドだけを通す。主Sessionと他のAgentは判定しない。ただし、解析できないHook入力は主Sessionを含めて拒否する |
+| `PreToolUse`（Bash、PowerShell） | `block_dangerous_git.py --ask-push` | 強制push、`reset --hard`、`worktree remove --force`などを拒否し、通常のpushは利用者に確認する。解析できないHook入力は拒否する。事故を防ぐための照合で、ADR 0033より前と同じく`;`、`|`、`&&`、`||`、改行で分け、字句解析できない区間を読み飛ばす判定と、引用符を解釈して`$(...)`、バッククォート、`sh -c`、`eval`の中身も分ける判定の厳しいほうを採る。2万文字を超える入力は前者の判定だけを行う（ADR 0033） |
+| `PreToolUse`（Bash、PowerShell、Monitor、編集Tool、Agent、MCP） | `enforce_read_only_agent.py` | `.codex/agents/`で読み取り専用と宣言したAgentのToolを拒否し、Bashの`python tools/review_query.py`の呼び出しだけを通す。定義ファイルを解析できないAgentは読み取り専用として制限し、`null`以外の文字列でない`agent_type`は拒否する。主Sessionと他のAgentは判定しない。ただし、解析できないHook入力は主Sessionを含めて拒否する |
 | `PreToolUse`（Playwright MCP） | `restrict_browser_files.py` | 主Sessionを含めて、ブラウザのToolの`filename`を`tmp/playwright-mcp/`の下に限り、解決の基準を変える`_meta`を拒否する。解析できない入力は拒否する（ADR 0032。実機での確認の状況はその「影響」を見る） |
 | `SessionStart` | `project_memory_hook.py session-start` | 共有記憶の開始状態を保存し、session_idと、別Sessionが使用中ならworktreeへ移る指示をContextへ渡す |
 | `Stop` | `project_memory_hook.py stop` | 未記録の変更があれば1 Sessionに1回だけ`finish`を促す |
@@ -311,10 +311,12 @@ Project Hookを実行します。一時的に無効化する場合は、利用�
 
 Subagentの`permissionMode: plan`は、親Sessionが`auto`、`acceptEdits`、`bypassPermissions`のとき
 無視されます。`enforce_read_only_agent.py`はHook入力の`agent_type`で対象を判定し、Review Agentの
-Bashでは、`git`の読み取り系サブコマンド、`cat`や`grep`などの読み取りコマンド、`pytest`、
-`tools/check.py`、`tools/sync_agent_config.py --check`だけを許可します。ファイルへのリダイレクト、
-コマンド置換、`--fix`などの書き込みOptionは拒否します。`tools/preview_output.py`は`tmp/preview/`の
-前回出力を上書きするため、Review Agentからは実行できません。Hookの変更は新しいSessionから
+Bashでは`python tools/review_query.py`の呼び出しだけを通します。このScriptは検索、ファイルの一覧、
+Gitの履歴、`tests/`の下のpytestのテストを扱い、外部のコマンドへOptionとして渡る値を受け付けません
+（ADR 0033）。Review Agentは`python tools/check.py`、`tests/web/`のJavaScriptのテスト、
+`tools/preview_output.py`を実行できません。`$review-kvk-change`では、主エージェントがこれらを実行し、
+結果と出力のパスを担当へ渡します。
+`.claude/settings.json`の登録の変更は新しいSessionから、登録済みのScriptの本体の変更は次の呼び出しから
 有効になります。
 
 ### 共有スキル
