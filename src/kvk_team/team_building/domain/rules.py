@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from kvk_team.team_building.domain.member import Tier
-from kvk_team.team_building.domain.team import TeamLabel
+from kvk_team.team_building.domain.plan import TimeSlot, time_slots
 from kvk_team.team_building.domain.team_master import TeamMaster
 
 DEFAULT_TIER_POWER: Mapping[Tier, int] = MappingProxyType(
@@ -20,16 +20,6 @@ DEFAULT_TIER_POWER: Mapping[Tier, int] = MappingProxyType(
 
 
 @dataclass(frozen=True, slots=True)
-class ObjectiveWeights:
-    """CP-SAT最適化目的に使用する相対的な重み。"""
-
-    priority_power: int = 100
-    underfilled_team: int = 100_000
-    member_team_change: int = 1_000
-    ninth_member: int = 100
-
-
-@dataclass(frozen=True, slots=True)
 class KvKRules:
     """1回のKvK編成に使用する不変の制約と評価値。"""
 
@@ -39,7 +29,6 @@ class KvKRules:
         default_factory=lambda: DEFAULT_TIER_POWER,
         init=False,
     )
-    objective_weights: ObjectiveWeights = field(default_factory=ObjectiveWeights)
     maximum_optimization_seconds: float = 30.0
     maximum_deterministic_time: float | None = None
     """CP-SATの決定的時間による探索上限。指定時は実行環境の速さに依存せず打ち切る。"""
@@ -63,19 +52,14 @@ class KvKRules:
             raise ValueError("validation attempt count must be positive")
 
     @property
-    def team_labels(self) -> tuple[TeamLabel, ...]:
-        """すべての固定チームラベルを優先順で返す。"""
+    def time_slots(self) -> tuple[TimeSlot, ...]:
+        """戦闘時間を等分した時間帯を返す。"""
 
-        return self.team_master.team_labels
-
-    @property
-    def rally_leaders(self) -> Mapping[TeamLabel, str]:
-        """JSONチームマスタで定義した固定集結主を返す。"""
-
-        return self.team_master.rally_leaders
+        event = self.team_master.event_time
+        return time_slots(event.start_minutes, event.end_minutes)
 
     @property
-    def vc_required_teams(self) -> tuple[TeamLabel, ...]:
-        """JSONチームマスタでVC必須としたチームを返す。"""
+    def member_cap(self) -> int:
+        """第4隊以降の出撃人数の上限を返す。"""
 
-        return self.team_master.vc_required_teams
+        return self.team_master.member_cap

@@ -126,8 +126,8 @@ python tools/preview_output.py
 ```
 
 既定では`sample/参加者一覧.md`を入力にし、Git管理外の`tmp/preview/チーム編成.md`へ書きます。
-直前の出力は`チーム編成.previous.md`へ退避されます。`--input`、`--output`、`--seconds`で
-入力、出力先、最適化の制限時間を変更できます。CP-SATは制限時間内の探索結果を返すため、
+直前の出力は`チーム編成.previous.md`へ退避されます。`--input`、`--output`、`--seconds`、`--settings`で
+入力、出力先、最適化の制限時間、運用者の指定（省略時は同梱の架空のリーダー一覧）を変更できます。CP-SATは制限時間内の探索結果を返すため、
 差分は確認材料として扱い、合否は自己チェックと品質ゲートで判断します。
 
 ## テストの責務
@@ -135,8 +135,10 @@ python tools/preview_output.py
 | 対象 | 主な検証内容 |
 |---|---|
 | `tests/test_parser.py` | 日本語入力記法、時間、属性、入力エラー |
-| `tests/test_time_slot_optimizer.py` | CP-SATの必須制約、目的関数、決定性、解なしと時間切れの区別 |
-| `tests/test_dynamic_validator_exporter.py` | 独立検証、警告、Markdown出力 |
+| `tests/test_membership_optimizer.py` | 所属固定のCP-SATの必須制約（上位隊の常時稼働を含む）、暫定の目的関数、待機と別枠、決定性、解なしの証明と時間切れの区別 |
+| `tests/test_team_plan_exporter.py` | 隊、待機、別枠、時間帯別の出撃、自己チェックのMarkdown出力 |
+| `tests/test_team_master_repository.py` | チームマスタ（schema_version 2）の読み込み、以前の形の拒否、同梱の例の架空の名前 |
+| `tests/test_operator_settings_repository.py` | 運用者の指定（`settings.json`）の読み込み、未実装のキーの拒否、名前を出さないエラー |
 | `tests/test_validator_properties.py` | 生成した編成で、必須条件を1つ破った候補の拒否と有効な編成の受理 |
 | `tests/test_optimizer_properties.py` | 生成した参加者でのOptimizer出力の独立検証 |
 | `tests/test_service.py` | Adapter調整、再試行、失敗伝播 |

@@ -26,10 +26,10 @@ class ResolvedAvailability:
 
 @dataclass(frozen=True, slots=True)
 class AvailabilityPartition:
-    """時間確定メンバーと時間未定メンバーの分割結果。"""
+    """時間確定メンバーと参加時間未定（別枠、FRM-060）のメンバーの分割結果。"""
 
     confirmed: tuple[ResolvedAvailability, ...]
-    standby: tuple[Member, ...]
+    undecided: tuple[Member, ...]
 
 
 @dataclass(slots=True)
@@ -42,14 +42,14 @@ class AvailabilityResolver:
         """開始時刻が確定しているメンバーだけをスロット配置対象にする。"""
 
         confirmed: list[ResolvedAvailability] = []
-        standby: list[Member] = []
+        undecided: list[Member] = []
         for member in members:
             resolved = self._resolve(member)
             if resolved is None:
-                standby.append(member)
+                undecided.append(member)
             else:
                 confirmed.append(resolved)
-        return AvailabilityPartition(tuple(confirmed), tuple(standby))
+        return AvailabilityPartition(tuple(confirmed), tuple(undecided))
 
     def _resolve(self, member: Member) -> ResolvedAvailability | None:
         """1人の参加時間を解決し、開始未定ならNoneを返す。"""

@@ -1,101 +1,73 @@
-"""生成した編成で、独立Validatorの必須条件の判定を検証する性質テスト。
+"""生成した所属固定の編成で、独立Validatorの必須条件の判定を検証する性質テスト。
 
 有効な編成を構成的に生成し、必須条件を1つだけ破る変更を加える。Validatorが期待する
-コード、チーム、時間帯だけを必須条件エラーとして返すことで、見逃しと誤検出の両方を
-検出する。
+コード、隊、時間帯だけを必須条件エラーとして返すことで、見逃しと誤検出の両方を検出する。
 """
+
+from dataclasses import replace
 
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from kvk_team.team_building.domain.member import Member, Tier
-from kvk_team.team_building.domain.team import TeamLabel
+from kvk_team.team_building.domain.plan import TeamPlan
+from kvk_team.team_building.domain.specification import MemberRef, OperatorSpecification
+from kvk_team.team_building.domain.team import (
+    EXTENSION_BOUNDARY_MINUTES,
+    SORTIE_FLOOR,
+    TOP_TEAM_COUNT,
+)
 from kvk_team.team_building.domain.validation import (
-    DynamicTeamValidator,
-    DynamicValidationCode,
-    DynamicValidationIssue,
+    TeamPlanValidator,
+    ValidationCode,
+    ValidationIssue,
 )
 from team_plan_strategies import (
-    FIXED_TEAM_SIZE,
-    FIXED_TEAMS,
-    FLEXIBLE_TEAMS,
-    MASTER,
+    EVENT,
+    MEMBER_CAP,
     RULES,
     SLOT_STARTS,
     PowerTie,
-    Roster,
     Scenario,
+    covers,
+    make_member,
     master_assumption_errors,
     scenarios,
     team_power,
+    with_vc,
 )
 
-LEADER_NAMES = frozenset(
-    name
-    for definition in MASTER.teams
-    for name in (definition.rally_leader, *definition.substitute_leaders)
-)
-slot_starts = st.sampled_from(SLOT_STARTS)
+IssueKey = tuple[ValidationCode, int | None, int | None]
+"""検証結果1件を、コード、隊の番号、時間帯の開始時刻で表す。"""
 
 
-IssueKey = tuple[DynamicValidationCode, TeamLabel | None, int | None]
-"""検証結果1件を、コード、チーム、時間帯の開始時刻で表す。"""
-
-
-def issue_key(issue: DynamicValidationIssue) -> IssueKey:
+def issue_key(issue: ValidationIssue) -> IssueKey:
     """検証結果を比較用のキーへ変換する。"""
 
     start = issue.time_slot.start_minutes if issue.time_slot is not None else None
-    return issue.code, issue.team_label, start
+    return issue.code, issue.team_number, start
 
 
-def issue_keys(scenario: Scenario, roster: Roster) -> set[IssueKey]:
-    """変更した配置を検証し、必須条件エラーのキーを返す。"""
+def issue_keys(
+    scenario: Scenario,
+    plan: TeamPlan,
+    specification: OperatorSpecification | None = None,
+    source_members: list[Member] | None = None,
+) -> set[IssueKey]:
+    """変更した編成を検証し、必須条件エラーのキーを返す。"""
 
-    report = DynamicTeamValidator(RULES).validate(
-        scenario.plan(roster),
-        scenario.source_members,
+    report = TeamPlanValidator(RULES).validate(
+        plan,
+        scenario.source_members if source_members is None else source_members,
+        scenario.specification if specification is None else specification,
     )
     return {issue_key(issue) for issue in report.issues}
 
 
-def non_leaders(
-    teams: dict[TeamLabel, list[Member]],
-    labels: tuple[TeamLabel, ...],
-) -> list[tuple[TeamLabel, Member]]:
-    """指定チームに配置された、集結主と代理以外のメンバーを返す。"""
+def all_slots(code: ValidationCode, number: int | None) -> set[IssueKey]:
+    """全時間帯の同じ検証結果のキーを返す。"""
 
-    return [
-        (label, member)
-        for label in labels
-        for member in teams[label]
-        if member.name not in LEADER_NAMES
-    ]
-
-
-def flexible_with_room(
-    teams: dict[TeamLabel, list[Member]],
-    excluded: TeamLabel | None = None,
-) -> list[TeamLabel]:
-    """最大人数に達していないD〜Kのチームを返す。"""
-
-    return [
-        label
-        for label in FLEXIBLE_TEAMS
-        if label is not excluded
-        and len(teams[label]) < MASTER.teams_by_label[label].maximum_members
-    ]
-
-
-def expected_leader(members: list[Member], label: TeamLabel) -> Member | None:
-    """有効な配置で、そのチームが置くべき集結主または代理を返す。"""
-
-    definition = MASTER.teams_by_label[label]
-    by_name = {member.name: member for member in members}
-    for name in (definition.rally_leader, *definition.substitute_leaders):
-        if name in by_name:
-            return by_name[name]
-    return None
+    return {(code, number, start) for start in SLOT_STARTS}
 
 
 def test_strategies_match_team_master() -> None:
@@ -109,290 +81,442 @@ def test_strategies_match_team_master() -> None:
 
 @given(scenarios())
 def test_validator_accepts_generated_valid_plan(scenario: Scenario) -> None:
-    """必須条件を満たす編成を受理し、D〜Kの不足と到着待ちを該当箇所すべてで警告する。
+    """必須条件を満たす編成を受理し、8人未満、リーダー不在、延長境界時刻以降の休止を警告する。
 
-    生成した配置では参加中のメンバーが全員自チームにいるため、チームの人数と集結主の有無から
-    警告が出るべきチームと時間帯が決まる。
+    生成した所属と参加時間から、警告が出るべき隊と時間帯が決まる。
     """
 
-    report = DynamicTeamValidator(RULES).validate(
-        scenario.plan(),
-        scenario.source_members,
+    report = TeamPlanValidator(RULES).validate(
+        scenario.plan(), scenario.source_members, scenario.specification
     )
-    expected_warnings = {
-        (DynamicValidationCode.UNDERFILLED, label, start)
-        for start in SLOT_STARTS
-        for label in FLEXIBLE_TEAMS
-        if len(scenario.roster[start][label])
-        < MASTER.teams_by_label[label].minimum_members
-    } | {
-        (DynamicValidationCode.RALLY_LEADER, label, start)
-        for start in SLOT_STARTS
-        for label in MASTER.team_labels
-        if expected_leader(list(scenario.roster[start][label]), label) is None
-    }
+    expected: set[IssueKey] = set()
+    for number, (leader, members) in enumerate(
+        zip(scenario.leaders, scenario.teams, strict=True), start=1
+    ):
+        if number <= TOP_TEAM_COUNT:
+            continue
+        for start in SLOT_STARTS:
+            count = scenario.present_count(members, start)
+            if count == 0:
+                expected.add((ValidationCode.REST, number, start))
+                continue
+            if count < SORTIE_FLOOR:
+                expected.add((ValidationCode.UNDERFILLED, number, start))
+            if leader not in members or not covers(leader, start):
+                expected.add((ValidationCode.LEADER_ABSENT, number, start))
 
     assert report.issues == ()
-    assert {issue_key(warning) for warning in report.warnings} == expected_warnings
-    assert len(report.warnings) == len(expected_warnings)
-    assert set(report.standby_members) == set(scenario.standby)
+    assert {issue_key(warning) for warning in report.warnings} == expected
+    assert len(report.warnings) == len(expected)
+    assert report.waiting == scenario.waiting
+    assert set(report.undecided) == set(scenario.undecided)
 
 
-@given(scenarios(power_tie=PowerTie.B_EQUALS_C))
-def test_validator_accepts_equal_power_of_b_and_c(scenario: Scenario) -> None:
-    """BとCの戦力が同じ編成を`B >= C`の境界として受理する。"""
+@given(scenarios(power_tie=PowerTie.SECOND_EQUALS_THIRD))
+def test_validator_accepts_equal_power_of_second_and_third(scenario: Scenario) -> None:
+    """第2隊と第3隊の戦力が同じ編成を`>=`の境界として受理する。"""
 
-    assert issue_keys(scenario, scenario.copy_roster()) == set()
+    assert issue_keys(scenario, scenario.plan()) == set()
 
 
-@given(scenarios(power_tie=PowerTie.A_EQUALS_B))
-def test_validator_rejects_equal_power_of_a_and_b(scenario: Scenario) -> None:
-    """AとBの戦力が同じ編成を、全時間帯で`A > B`を満たさないとして拒否する。"""
+@given(scenarios(power_tie=PowerTie.FIRST_EQUALS_SECOND))
+def test_validator_rejects_equal_power_of_first_and_second(scenario: Scenario) -> None:
+    """第1隊と第2隊の戦力が同じ編成を、全時間帯で`>`を満たさないとして拒否する。"""
 
-    assert issue_keys(scenario, scenario.copy_roster()) == {
-        (DynamicValidationCode.POWER_ORDER, None, start) for start in SLOT_STARTS
+    assert issue_keys(scenario, scenario.plan()) == all_slots(
+        ValidationCode.POWER_ORDER, None
+    )
+
+
+@given(scenarios(), st.data())
+def test_validator_rejects_member_in_two_places(
+    scenario: Scenario, data: st.DataObject
+) -> None:
+    """第4隊以降のメンバーを待機にも置いた編成を重複として拒否する。"""
+
+    candidates = [
+        member
+        for number, team in enumerate(scenario.teams, start=1)
+        if number > TOP_TEAM_COUNT
+        for member in team
+        if member not in scenario.leaders
+    ]
+    assume(candidates)
+    member = data.draw(st.sampled_from(candidates))
+    plan = scenario.plan(waiting=[*scenario.waiting, member])
+
+    assert issue_keys(scenario, plan) == {(ValidationCode.DUPLICATE, None, None)}
+
+
+@given(scenarios())
+def test_validator_rejects_member_neither_in_team_nor_waiting(
+    scenario: Scenario,
+) -> None:
+    """参加時間が確定しているのに隊にも待機にもいない参加者を拒否する。"""
+
+    assume(scenario.waiting)
+    plan = scenario.plan(waiting=list(scenario.waiting[1:]))
+
+    assert issue_keys(scenario, plan) == {(ValidationCode.UNASSIGNED, None, None)}
+
+
+@given(scenarios())
+def test_validator_rejects_unknown_member(scenario: Scenario) -> None:
+    """参加者一覧にいないメンバーを待機に置いた編成を拒否する。"""
+
+    stranger = make_member("一覧にいない参加者", Tier.G5, has_vc=False)
+    plan = scenario.plan(waiting=[*scenario.waiting, stranger])
+
+    assert issue_keys(scenario, plan) == {(ValidationCode.UNEXPECTED, None, None)}
+
+
+@given(scenarios())
+def test_validator_rejects_undecided_member_moved_to_waiting(
+    scenario: Scenario,
+) -> None:
+    """参加時間未定のメンバーを別枠から待機へ移した編成を拒否する（FRM-060）。"""
+
+    movable = [
+        member for member in scenario.undecided if member not in scenario.leaders
+    ]
+    assume(movable)
+    member = movable[0]
+    plan = scenario.plan(
+        waiting=[*scenario.waiting, member],
+        undecided=[item for item in scenario.undecided if item != member],
+    )
+
+    assert issue_keys(scenario, plan) == {
+        (ValidationCode.UNEXPECTED, None, None),
+        (ValidationCode.UNASSIGNED, None, None),
     }
 
 
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_member_assigned_twice(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """同じ時間帯に2チームへ置いた参加者を重複配置として拒否する。"""
+@given(scenarios())
+def test_validator_rejects_confirmed_member_in_undecided(scenario: Scenario) -> None:
+    """参加時間が確定しているメンバーを別枠に置いた編成を拒否する。"""
 
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    source, member = data.draw(
-        st.sampled_from(
-            [(label, m) for label in MASTER.team_labels for m in teams[label]]
+    assume(scenario.waiting)
+    member = scenario.waiting[0]
+    plan = scenario.plan(
+        waiting=list(scenario.waiting[1:]),
+        undecided=[*scenario.undecided, member],
+    )
+
+    # 別枠へ移したメンバーは、隊にも待機にもいない確定参加者にも当たる。
+    assert issue_keys(scenario, plan) == {
+        (ValidationCode.UNEXPECTED, None, None),
+        (ValidationCode.UNASSIGNED, None, None),
+    }
+
+
+@given(scenarios(), st.integers(min_value=1, max_value=TOP_TEAM_COUNT))
+def test_validator_rejects_top_team_above_size(scenario: Scenario, number: int) -> None:
+    """上位隊へ全時間帯に参加するVC可能な9人目を置いた編成を人数違反として拒否する。"""
+
+    extra = make_member("9人目", Tier.G5, has_vc=True)
+    teams = scenario.copy_teams()
+    teams[number - 1].append(extra)
+    source = [*scenario.source_members, extra]
+    keys = issue_keys(scenario, scenario.plan(teams), source_members=source)
+
+    # 9人目で戦力が増えるため、上の隊との戦力関係が崩れることがある。
+    assert all_slots(ValidationCode.TOP_TEAM_SIZE, number) <= keys
+    assert {key[0] for key in keys} <= {
+        ValidationCode.TOP_TEAM_SIZE,
+        ValidationCode.POWER_ORDER,
+    }
+
+
+@given(scenarios(), st.integers(min_value=1, max_value=TOP_TEAM_COUNT))
+def test_validator_rejects_top_team_below_size(scenario: Scenario, number: int) -> None:
+    """上位隊の1人を待機へ移した編成を、第4隊以降と違い警告ではなく人数違反として拒否する。"""
+
+    teams = scenario.copy_teams()
+    removed = teams[number - 1].pop()
+    keys = issue_keys(
+        scenario, scenario.plan(teams, waiting=[*scenario.waiting, removed])
+    )
+
+    assert all_slots(ValidationCode.TOP_TEAM_SIZE, number) <= keys
+    assert {key[0] for key in keys} <= {
+        ValidationCode.TOP_TEAM_SIZE,
+        ValidationCode.POWER_ORDER,
+    }
+
+
+@given(scenarios())
+def test_validator_rejects_flexible_team_above_cap(scenario: Scenario) -> None:
+    """第4隊以降へ上限を超えて置いた編成を、全時間帯の人数違反として拒否する。"""
+
+    assume(len(scenario.teams) > TOP_TEAM_COUNT)
+    number = TOP_TEAM_COUNT + 1
+    extras = [
+        make_member(f"追加参加者{index}", Tier.G5, has_vc=False)
+        for index in range(MEMBER_CAP + 1)
+    ]
+    teams = scenario.copy_teams()
+    teams[number - 1].extend(extras)
+    source = [*scenario.source_members, *extras]
+
+    keys = issue_keys(scenario, scenario.plan(teams), source_members=source)
+
+    assert keys == all_slots(ValidationCode.CAPACITY, number)
+
+
+@given(scenarios(), st.integers(min_value=1, max_value=TOP_TEAM_COUNT), st.data())
+def test_validator_rejects_non_vc_member_in_top_team(
+    scenario: Scenario, number: int, data: st.DataObject
+) -> None:
+    """上位隊のメンバーをVC不可へ変えた編成を拒否する（FRM-021）。"""
+
+    teams = scenario.copy_teams()
+    index = data.draw(st.integers(min_value=1, max_value=len(teams[number - 1]) - 1))
+    original = teams[number - 1][index]
+    changed = with_vc(original, False)
+    teams[number - 1][index] = changed
+    source = [
+        changed if member == original else member for member in scenario.source_members
+    ]
+
+    assert issue_keys(scenario, scenario.plan(teams), source_members=source) == {
+        (ValidationCode.VC_REQUIRED, number, None)
+    }
+
+
+@given(scenarios())
+def test_validator_rejects_leader_outside_own_team(scenario: Scenario) -> None:
+    """第4隊のリーダーを第5隊へ移した編成を拒否する（FRM-002）。"""
+
+    assume(len(scenario.teams) > TOP_TEAM_COUNT + 1)
+    number = TOP_TEAM_COUNT + 1
+    leader = scenario.leaders[number - 1]
+    teams = scenario.copy_teams()
+    assume(leader in teams[number - 1])
+    teams[number - 1].remove(leader)
+    teams[number].append(leader)
+    assume(len(teams[number]) <= MEMBER_CAP)
+    keys = issue_keys(scenario, scenario.plan(teams))
+
+    assert (ValidationCode.LEADER, number, None) in keys
+    assert {key[0] for key in keys} <= {
+        ValidationCode.LEADER,
+        ValidationCode.REST,
+    }
+
+
+@given(scenarios())
+def test_validator_rejects_wrong_team_count(scenario: Scenario) -> None:
+    """リーダーの人数と隊の数が合わない編成を拒否する（FRM-001）。"""
+
+    extra_leader = scenario.waiting[0] if scenario.waiting else None
+    assume(extra_leader is not None)
+    assert extra_leader is not None
+    specification = OperatorSpecification(
+        leaders=(
+            *scenario.specification.leaders,
+            MemberRef(extra_leader.name, extra_leader.alliance),
         )
     )
-    targets = flexible_with_room(teams, excluded=source)
-    assume(targets)
-    teams[data.draw(st.sampled_from(targets))].append(member)
 
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.DUPLICATE, None, start)
+    assert issue_keys(scenario, scenario.plan(), specification=specification) == {
+        (ValidationCode.TEAMS, None, None)
     }
 
 
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_unassigned_active_member(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """参加中なのにどのチームにもいない参加者を未配置として拒否する。"""
+@given(scenarios())
+def test_validator_rejects_swapped_leaders(scenario: Scenario) -> None:
+    """リーダー一覧の順と違うリーダーの隊を拒否する。"""
 
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    candidates = non_leaders(teams, FLEXIBLE_TEAMS)
-    assume(candidates)
-    label, member = data.draw(st.sampled_from(candidates))
-    teams[label].remove(member)
+    first, second, *rest = scenario.specification.leaders
+    specification = OperatorSpecification(leaders=(second, first, *rest))
 
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.UNASSIGNED, None, start)
+    assert issue_keys(scenario, scenario.plan(), specification=specification) == {
+        (ValidationCode.LEADER, 1, None),
+        (ValidationCode.LEADER, 2, None),
     }
 
 
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_member_outside_participation_time(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
+@given(scenarios())
+def test_validator_rejects_broken_power_order(scenario: Scenario) -> None:
+    """第1隊と第2隊のリーダー以外を入れ替え、戦力関係が崩れた編成を拒否する。"""
+
+    teams = scenario.copy_teams()
+    assume(team_power(teams[0]) > team_power(teams[1]))
+    teams[0][1:], teams[1][1:] = teams[1][1:], teams[0][1:]
+    assume(team_power(teams[0]) <= team_power(teams[1]))
+
+    keys = issue_keys(scenario, scenario.plan(teams))
+
+    assert all_slots(ValidationCode.POWER_ORDER, None) <= keys
+    assert {key[0] for key in keys} == {ValidationCode.POWER_ORDER}
+
+
+@given(scenarios(), st.data())
+def test_validator_reports_rest_before_boundary_as_shortfall(
+    scenario: Scenario, data: st.DataObject
 ) -> None:
-    """待機、参加時間外、入力にない参加者の配置を拒否する。"""
+    """延長境界時刻より前に所属メンバーが0人になる隊を、下限の不足として拒否する（FRM-048）。
 
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    placed = {member for members in teams.values() for member in members}
-    outsiders = [
-        *scenario.standby,
-        *(member for member in scenario.members if member not in placed),
-        Member(name="入力にない参加者", alliance="検証同盟", tier=Tier.G5),
-    ]
-    targets = flexible_with_room(teams)
-    assume(targets)
-    teams[data.draw(st.sampled_from(targets))].append(
-        data.draw(st.sampled_from(outsiders))
-    )
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.UNEXPECTED, None, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_fixed_team_above_size(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """Aへ9人目を置いた編成を人数違反として拒否する。"""
-
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    candidates = [
-        (label, member)
-        for label, member in non_leaders(teams, FLEXIBLE_TEAMS)
-        if member.has_vc
-    ]
-    assume(candidates)
-    label, member = data.draw(st.sampled_from(candidates))
-    teams[label].remove(member)
-    teams[TeamLabel.A].append(member)
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.CAPACITY, TeamLabel.A, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_fixed_team_below_size(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """Cを7人にした編成を、D〜Kと違い警告ではなく人数違反として拒否する。"""
-
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    targets = flexible_with_room(teams)
-    assume(targets)
-    _, member = data.draw(st.sampled_from(non_leaders(teams, (TeamLabel.C,))))
-    teams[TeamLabel.C].remove(member)
-    teams[data.draw(st.sampled_from(targets))].append(member)
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.CAPACITY, TeamLabel.C, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_flexible_team_above_maximum(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """D〜Kへ最大人数を超えて置いた編成を人数違反として拒否する。"""
-
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    target = data.draw(st.sampled_from(FLEXIBLE_TEAMS))
-    others = tuple(label for label in FLEXIBLE_TEAMS if label is not target)
-    needed = MASTER.teams_by_label[target].maximum_members + 1 - len(teams[target])
-    donors = non_leaders(teams, others)
-    assume(len(donors) >= needed)
-    for label, member in data.draw(st.permutations(donors))[:needed]:
-        teams[label].remove(member)
-        teams[target].append(member)
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.CAPACITY, target, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_non_vc_member_in_fixed_team(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """A〜CのメンバーをVC不可の同Tierと入れ替えた編成を拒否する。"""
-
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    pairs = [
-        (fixed, fixed_member, flexible, flexible_member)
-        for fixed, fixed_member in non_leaders(teams, FIXED_TEAMS)
-        for flexible, flexible_member in non_leaders(teams, FLEXIBLE_TEAMS)
-        if not flexible_member.has_vc and flexible_member.tier is fixed_member.tier
-    ]
-    assume(pairs)
-    fixed, fixed_member, flexible, flexible_member = data.draw(st.sampled_from(pairs))
-    teams[fixed].remove(fixed_member)
-    teams[fixed].append(flexible_member)
-    teams[flexible].remove(flexible_member)
-    teams[flexible].append(fixed_member)
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.VC_REQUIRED, fixed, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_active_leader_outside_own_team(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """参加中の集結主または代理を別チームへ移した編成を拒否する。
-
-    人数、VC、戦力が変わらないよう、同じTierのメンバーと入れ替える。
+    第4隊以降の所属をリーダーだけにし、そのリーダーを延長境界時刻より前の途中から参加させる。
     """
 
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    pairs = []
-    for label in MASTER.team_labels:
-        leader = expected_leader(teams[label], label)
-        if leader is None:
-            continue
-        for other_label, other in non_leaders(teams, MASTER.team_labels):
-            needs_vc = label in FIXED_TEAMS or other_label in FIXED_TEAMS
-            if (
-                other_label is not label
-                and other.tier is leader.tier
-                and (not needs_vc or (leader.has_vc and other.has_vc))
-            ):
-                pairs.append((label, leader, other_label, other))
-    assume(pairs)
-    label, leader, other_label, other = data.draw(st.sampled_from(pairs))
-    teams[label].remove(leader)
-    teams[label].append(other)
-    teams[other_label].remove(other)
-    teams[other_label].append(leader)
-
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.RALLY_LEADER, label, start)
-    }
-
-
-@given(scenarios(), slot_starts, st.data())
-def test_validator_rejects_broken_power_order(
-    scenario: Scenario,
-    start: int,
-    data: st.DataObject,
-) -> None:
-    """A〜Cの集結主以外を入れ替え、A > B >= Cが崩れた編成を拒否する。"""
-
-    roster = scenario.copy_roster()
-    teams = roster[start]
-    first, second = data.draw(
+    assume(len(scenario.teams) > TOP_TEAM_COUNT)
+    number = TOP_TEAM_COUNT + 1
+    leader = scenario.leaders[number - 1]
+    assume(leader in scenario.teams[number - 1])
+    late_start = data.draw(
         st.sampled_from(
-            [
-                (TeamLabel.A, TeamLabel.B),
-                (TeamLabel.B, TeamLabel.C),
-                (TeamLabel.A, TeamLabel.C),
-            ]
+            [start for start in SLOT_STARTS[1:] if start < EXTENSION_BOUNDARY_MINUTES]
         )
     )
-    first_leader, *first_rest = teams[first]
-    second_leader, *second_rest = teams[second]
-    teams[first] = [first_leader, *second_rest]
-    teams[second] = [second_leader, *first_rest]
-    power = {label: team_power(teams[label]) for label in FIXED_TEAMS}
-    assume(
-        not (
-            power[TeamLabel.A] > power[TeamLabel.B]
-            and power[TeamLabel.B] >= power[TeamLabel.C]
+    late_leader = replace(
+        leader, starts_at_21=False, start_time_minutes=late_start, end_time_minutes=None
+    )
+    others = [member for member in scenario.teams[number - 1] if member != leader]
+    teams = scenario.copy_teams()
+    teams[number - 1] = [late_leader]
+    source = [
+        late_leader if member == leader else member
+        for member in scenario.source_members
+    ]
+    leaders = tuple(
+        late_leader if item == leader else item for item in scenario.leaders
+    )
+    modified = replace(scenario, leaders=leaders)
+    plan = modified.plan(teams, waiting=[*scenario.waiting, *others])
+
+    report = TeamPlanValidator(RULES).validate(plan, source, modified.specification)
+
+    expected_rest = {
+        (ValidationCode.REST, number, start)
+        for start in SLOT_STARTS
+        if start < late_start
+    }
+    assert {issue_key(issue) for issue in report.issues} == expected_rest
+    assert report.has_only_shortfalls
+    assert {issue_key(issue) for issue in report.shortfalls} == expected_rest
+
+
+@given(scenarios(), st.integers(min_value=1, max_value=TOP_TEAM_COUNT), st.data())
+def test_validator_rejects_top_team_member_swapped_mid_battle(
+    scenario: Scenario, number: int, data: st.DataObject
+) -> None:
+    """上位隊の1人を、途中で抜ける人と途中から来る人の2人に置き換えた所属を拒否する。
+
+    どの時間帯も8人で戦力も同じになるが、全時間帯で入れ替えない規則（FRM-020〜FRM-022）に反する。
+    """
+
+    teams = scenario.copy_teams()
+    index = data.draw(st.integers(min_value=1, max_value=len(teams[number - 1]) - 1))
+    removed = teams[number - 1].pop(index)
+    switch = data.draw(st.sampled_from(SLOT_STARTS[1:]))
+    leaving = make_member(
+        "途中で抜ける人", removed.tier, True, (SLOT_STARTS[0], switch)
+    )
+    joining = make_member(
+        "途中から来る人", removed.tier, True, (switch, EVENT.end_minutes)
+    )
+    teams[number - 1].extend((leaving, joining))
+    source = [
+        *(member for member in scenario.source_members if member != removed),
+        leaving,
+        joining,
+    ]
+
+    assert issue_keys(scenario, scenario.plan(teams), source_members=source) == {
+        (ValidationCode.TOP_TEAM_SIZE, number, None),
+        (ValidationCode.TOP_TEAM_ALWAYS, number, None),
+    }
+
+
+def _fixed_scenario(fourth_leader_end: int | None = None) -> Scenario:
+    """上位隊の戦力が第1隊 > 第2隊 > 第3隊になる、決め打ちの4〜5隊の編成を作る。"""
+
+    top_tiers = (Tier.G8, Tier.G7, Tier.G6)
+    teams: list[tuple[Member, ...]] = []
+    leaders: list[Member] = []
+    for number, tier in enumerate(top_tiers, start=1):
+        leader = make_member(f"第{number}隊リーダー", Tier.G8, True)
+        others = tuple(
+            make_member(f"第{number}隊参加者{index}", tier, True)
+            for index in range(1, 8)
         )
+        teams.append((leader, *others))
+        leaders.append(leader)
+    window = None if fourth_leader_end is None else (SLOT_STARTS[0], fourth_leader_end)
+    fourth = make_member("第4隊リーダー", Tier.G5, False, window)
+    fifth = make_member("第5隊リーダー", Tier.G5, False)
+    teams.extend(((fourth,), (fifth,)))
+    leaders.extend((fourth, fifth))
+    return Scenario(
+        teams=tuple(teams), leaders=tuple(leaders), waiting=(), undecided=()
     )
 
-    assert len(teams[first]) == len(teams[second]) == FIXED_TEAM_SIZE
-    assert issue_keys(scenario, roster) == {
-        (DynamicValidationCode.POWER_ORDER, None, start)
+
+def test_fixed_scenario_is_valid() -> None:
+    """決め打ちの編成そのものは必須条件を満たす。以下のテストの前提を確かめる。"""
+
+    scenario = _fixed_scenario()
+
+    assert issue_keys(scenario, scenario.plan()) == set()
+
+
+def test_validator_rejects_second_team_weaker_than_third() -> None:
+    """第2隊と第3隊のリーダー以外を入れ替え、第2隊 >= 第3隊が崩れた編成を拒否する。"""
+
+    scenario = _fixed_scenario()
+    teams = scenario.copy_teams()
+    teams[1][1:], teams[2][1:] = teams[2][1:], teams[1][1:]
+
+    assert issue_keys(scenario, scenario.plan(teams)) == all_slots(
+        ValidationCode.POWER_ORDER, None
+    )
+
+
+def test_validator_rejects_member_in_two_teams() -> None:
+    """第4隊のリーダーを第5隊にも置いた編成を、2つの隊への重複として拒否する（FRM-010）。"""
+
+    scenario = _fixed_scenario()
+    teams = scenario.copy_teams()
+    teams[4].append(scenario.leaders[3])
+
+    assert issue_keys(scenario, scenario.plan(teams)) == {
+        (ValidationCode.DUPLICATE, None, None)
     }
+
+
+def test_validator_treats_rest_from_23_30_as_shortfall_until_boundary() -> None:
+    """23:30から所属メンバーが0人になる隊は、23:30の休止をエラー、24:00以降を警告にする。"""
+
+    scenario = _fixed_scenario(fourth_leader_end=23 * 60 + 30)
+
+    report = TeamPlanValidator(RULES).validate(
+        scenario.plan(), scenario.source_members, scenario.specification
+    )
+
+    assert {issue_key(issue) for issue in report.issues} == {
+        (ValidationCode.REST, 4, 23 * 60 + 30)
+    }
+    assert {
+        issue_key(warning)
+        for warning in report.warnings
+        if warning.code is ValidationCode.REST
+    } == {(ValidationCode.REST, 4, 24 * 60), (ValidationCode.REST, 4, 24 * 60 + 30)}
+
+
+def test_validator_treats_rest_from_boundary_as_warning() -> None:
+    """24:00から所属メンバーが0人になる隊は、休止を警告だけにして受理する（FRM-043、FRM-048）。"""
+
+    scenario = _fixed_scenario(fourth_leader_end=24 * 60)
+
+    report = TeamPlanValidator(RULES).validate(
+        scenario.plan(), scenario.source_members, scenario.specification
+    )
+
+    assert report.issues == ()
+    assert {
+        issue_key(warning)
+        for warning in report.warnings
+        if warning.code is ValidationCode.REST
+    } == {(ValidationCode.REST, 4, 24 * 60), (ValidationCode.REST, 4, 24 * 60 + 30)}
