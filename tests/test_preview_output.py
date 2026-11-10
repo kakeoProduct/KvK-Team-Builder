@@ -8,7 +8,16 @@ from types import ModuleType
 
 import pytest
 
-from kvk_team.team_building.application.build_team_plan import BuildError
+from kvk_team.team_building.adapters.optimization.errors import (
+    OptimizationTimeoutError,
+)
+from kvk_team.team_building.application.build_team_plan import (
+    BuildError,
+    LowerBoundShortfallError,
+    ShortfallQuestion,
+    ShortfallUndeterminedError,
+)
+from kvk_team.team_building.domain.plan import TimeSlot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PREVIEW_SCRIPT = PROJECT_ROOT / "tools" / "preview_output.py"
@@ -180,3 +189,87 @@ def test_main_reports_settings_errors_with_exit_code_2(
     assert status == 2
     assert not output.exists()
     assert f"エラー: {message}" in capsys.readouterr().err
+
+
+def test_main_shows_numbered_questions_with_exit_code_3(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """運用者の回答が要る場合は、番号付きの質問を示し、出力を書かずに3で終える（ADR 0035）。"""
+
+    module = _load_preview_module()
+    roster = tmp_path / "参加者一覧.md"
+    roster.write_text("参加者\n", encoding="utf-8")
+    output = tmp_path / "チーム編成.md"
+    slot = TimeSlot(21 * 60, 21 * 60 + 30)
+
+    def build(_source: str) -> str:
+        raise LowerBoundShortfallError(
+            [], [ShortfallQuestion(1, 6, (slot,), opening=True)]
+        )
+
+    status = module.main(["--input", str(roster), "--output", str(output)], build=build)
+
+    assert status == 3
+    assert not output.exists()
+    assert "問1: 第6隊 21:00（序盤）" in capsys.readouterr().err
+
+
+def test_main_reports_timeout_with_exit_code_4(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """時間切れは、出力を書かずに4で終える（ADR 0035）。"""
+
+    module = _load_preview_module()
+    roster = tmp_path / "参加者一覧.md"
+    roster.write_text("参加者\n", encoding="utf-8")
+    output = tmp_path / "チーム編成.md"
+
+    def build(_source: str) -> str:
+        raise ShortfallUndeterminedError("時間切れのため確定できません")
+
+    status = module.main(["--input", str(roster), "--output", str(output)], build=build)
+
+    assert status == 4
+    assert not output.exists()
+    assert "時間切れ" in capsys.readouterr().err
+
+
+def test_main_reports_optimizer_timeout_with_exit_code_4(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Optimizerの時間切れも、入力のエラー（2）でなく時間切れ（4）で終える（ADR 0035）。"""
+
+    module = _load_preview_module()
+    roster = tmp_path / "参加者一覧.md"
+    roster.write_text("参加者\n", encoding="utf-8")
+    output = tmp_path / "チーム編成.md"
+
+    def build(_source: str) -> str:
+        raise OptimizationTimeoutError("時間切れのため、編成の有無は未確定です")
+
+    status = module.main(["--input", str(roster), "--output", str(output)], build=build)
+
+    assert status == 4
+    assert not output.exists()
+    assert "時間切れ" in capsys.readouterr().err
+
+
+def test_main_reports_answers_load_error_with_exit_code_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """回答のファイルを読めなければ、出力を書かずに2で終える。"""
+
+    module = _load_preview_module()
+    roster = tmp_path / "参加者一覧.md"
+    roster.write_text("同盟名:SKY\nG8:\n山田◯◇\n", encoding="utf-8")
+    output = tmp_path / "チーム編成.md"
+    answers = tmp_path / "answers.json"
+    answers.write_text('{"answers": [{"number": 1}]}', encoding="utf-8")
+
+    status = module.main(
+        ["--input", str(roster), "--output", str(output), "--answers", str(answers)]
+    )
+
+    assert status == 2
+    assert not output.exists()
+    assert "運用者の回答を読み込めません" in capsys.readouterr().err

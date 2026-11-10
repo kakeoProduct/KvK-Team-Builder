@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [遅れて出撃する隊と応援、回答のファイル、番号付きの質問と終了コードを実装する](sessions/2026/2026-11-10T150827Z-b2c589da-3fa1-4fb6-9fe0-c13655a0cc61.md) | current | requirements, team-building | 44 |
 | [PR #13のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T130841Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 21 |
 | [Review AgentとSkillの旧ルールの語を所属固定のモデルへ合わせる](sessions/2026/2026-11-10T120730Z-eb4b8432-2cb5-4088-84d5-563738471501.md) | current | ai-harness | 14 |
 | [PR #10のbranchへ最新のdevを取り込む](sessions/2026/2026-11-10T115838Z-browser-mcp-merge-dev.md) | current | harness | 0 |

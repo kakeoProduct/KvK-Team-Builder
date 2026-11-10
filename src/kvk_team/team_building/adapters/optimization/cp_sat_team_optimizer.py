@@ -10,6 +10,11 @@
 5. 待機の人数
 6. 上位隊の戦力（大きいほどよい）
 
+遅れて出撃する隊は、出撃開始前の時間帯を人数、休止、上限の対象にしない。応援するメンバーは
+その遅れて出撃する隊に所属させ（作成者の仮定A-16）、応援先の出撃人数と上限に数える。応援先は
+応援を受ける時間帯に所属メンバーが1人以上参加する（休止中でない。FRM-042、FRM-048）。
+応援先のない出撃開始前の参加者は、遅れて出撃する隊に入れない（FRM-047）。
+
 2と4は隊の人数を均すための暫定の指標である。FRM-031の「8人未満の（隊、時間帯）の数」は、
 6人以下を禁じるFRM-039と組で入れないと、少数の隊を捨てて残りを8人にそろえる編成を選ぶ。
 足りない人数の合計は配り方によらず同じ値になり、人数を均せない。このためIssue 3で
@@ -29,6 +34,7 @@ from kvk_team.team_building.adapters.optimization.errors import (
 from kvk_team.team_building.application.ports import (
     OptimizationOutcome,
     ProvenInfeasible,
+    ShortfallKey,
     SolvedPlan,
 )
 from kvk_team.team_building.domain.availability import (
@@ -36,11 +42,17 @@ from kvk_team.team_building.domain.availability import (
     ResolvedAvailability,
 )
 from kvk_team.team_building.domain.member import Member
-from kvk_team.team_building.domain.plan import TeamMembership, TeamPlan, TimeSlot
+from kvk_team.team_building.domain.plan import (
+    Support,
+    TeamMembership,
+    TeamPlan,
+    TimeSlot,
+)
 from kvk_team.team_building.domain.rules import KvKRules
 from kvk_team.team_building.domain.specification import (
     OperatorSpecification,
     resolve_leaders,
+    resolve_member,
 )
 from kvk_team.team_building.domain.team import (
     AT_LEAST_AS_STRONG_PAIRS,
@@ -49,8 +61,36 @@ from kvk_team.team_building.domain.team import (
     STRICTLY_STRONGER_PAIRS,
     TOP_TEAM_COUNT,
     TOP_TEAM_SIZE,
+    can_receive_support,
     is_top_team,
+    team_name,
 )
+from kvk_team.team_building.domain.validation import format_clock
+
+
+@dataclass(frozen=True, slots=True)
+class _LatePlan:
+    """運用者の指定から作る、出撃開始時刻と応援（確定参加者の番号で持つ）。"""
+
+    starts: dict[int, int]
+    """隊の番号と出撃開始時刻。"""
+    supports: tuple[tuple[int, TimeSlot, int, int], ...]
+    """（確定参加者の番号, 時間帯, 応援先, 所属する遅れて出撃する隊）。"""
+
+    def has_started(self, number: int, slot: TimeSlot) -> bool:
+        """隊が時間帯に出撃開始以降かを返す。"""
+
+        start = self.starts.get(number)
+        return start is None or slot.start_minutes >= start
+
+    def support_count(self, number: int, slot: TimeSlot) -> int:
+        """隊が時間帯に受ける応援の人数を返す。"""
+
+        return sum(
+            1
+            for _, support_slot, target, _ in self.supports
+            if target == number and support_slot == slot
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +128,13 @@ class MembershipOptimizer:
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        allowed_shortfalls: frozenset[ShortfallKey] | None = None,
     ) -> OptimizationOutcome:
-        """所属固定の編成を返す。必須条件を満たせないと証明した場合は理由を返す。"""
+        """所属固定の編成を返す。必須条件を満たせないと証明した場合は理由を返す。
+
+        `allowed_shortfalls`を渡した場合は、延長境界時刻より前の休止をその（隊、時間帯）に限る
+        （回答の受け入れの確認。作成者の仮定A-41）。
+        """
 
         source = list(members)
         self._validate_members(source)
@@ -114,10 +159,21 @@ class MembershipOptimizer:
         reason = self._top_team_supply_shortage(confirmed, leader_index, slots)
         if reason is not None:
             return ProvenInfeasible(reason)
+        late_or_reason = self._late_plan(specification, source, confirmed, slots)
+        if isinstance(late_or_reason, str):
+            return ProvenInfeasible(late_or_reason)
+        late = late_or_reason
 
         variables = self._create_variables(confirmed, team_numbers, leader_index)
+        self._add_late_start_constraints(variables, confirmed, late, slots)
         levels = self._add_sortie_constraints(
-            variables, confirmed, team_numbers, leader_index, slots
+            variables,
+            confirmed,
+            team_numbers,
+            leader_index,
+            slots,
+            late,
+            allowed_shortfalls,
         )
         waiting = [(1, variable, 1) for variable in variables.waiting.values()]
         self._set_lexicographic_objective(
@@ -142,6 +198,18 @@ class MembershipOptimizer:
         solver.parameters.random_seed = self.rules.solver_random_seed
         status = solver.solve(variables.model)
         if status == cp_model.INFEASIBLE:
+            if allowed_shortfalls is not None:
+                return ProvenInfeasible(
+                    "応援するメンバーを遅れて出撃する隊に所属させたうえで、上位隊の人数、VC、"
+                    "戦力関係、応援先の上限と出撃、休止を許した隊と時間帯の外に休止がないことを、"
+                    "すべて満たす編成は存在しません"
+                )
+            if late.starts:
+                return ProvenInfeasible(
+                    "遅れて出撃する隊と応援先の指定のもとで、上位隊の人数、VC、戦力関係、"
+                    "応援先の上限と出撃を全時間帯で満たす編成は存在しません。"
+                    "回答か参加者一覧、リーダー一覧を見直してください"
+                )
             return ProvenInfeasible(
                 "上位隊の人数、VC、戦力関係を全時間帯で満たす編成は存在しません。"
                 "参加者、VC、参加時間、リーダー一覧を見直してください"
@@ -167,8 +235,77 @@ class MembershipOptimizer:
             partition.undecided,
             team_numbers,
             leaders,
+            late,
         )
         return SolvedPlan(plan=plan, proven_optimal=status == cp_model.OPTIMAL)
+
+    @staticmethod
+    def _late_plan(
+        specification: OperatorSpecification,
+        source: list[Member],
+        confirmed: tuple[ResolvedAvailability, ...],
+        slots: tuple[TimeSlot, ...],
+    ) -> _LatePlan | str:
+        """遅れて出撃する隊と応援を、確定参加者の番号へ解決する。成り立たなければ理由を返す。
+
+        ほかの指定によって変わらない誤りは、アプリケーションが最適化の前に入力のエラーにする
+        （`domain.answers.check_answers`）。ここでは、応援先がほかの遅れて出撃する隊の出撃開始前に
+        当たるかなど、指定どうしの組み合わせで決まることを確かめる。
+        """
+
+        starts = {late.team: late.start_minutes for late in specification.late_starts}
+        index_of = {item.member: index for index, item in enumerate(confirmed)}
+        slot_by_start = {slot.start_minutes: slot for slot in slots}
+        supports: list[tuple[int, TimeSlot, int, int]] = []
+        for late in specification.late_starts:
+            for ref in late.supports:
+                # 応援は並べ直して持つため、書いた位置ではなく時刻と応援先で示す。
+                where = (
+                    f"{team_name(late.team)}の{format_clock(ref.slot_start_minutes)}の"
+                    f"{team_name(ref.team)}への応援"
+                )
+                member = resolve_member(ref.member, source, where)
+                index = index_of.get(member)
+                slot = slot_by_start.get(ref.slot_start_minutes)
+                if index is None or slot is None:
+                    return f"{where}のメンバーか時間帯が、確定した参加時間にありません"
+                if not can_receive_support(ref.team) or ref.team == late.team:
+                    return (
+                        f"{where}の応援先の{team_name(ref.team)}は応援を受けられません"
+                    )
+                target_start = starts.get(ref.team)
+                if target_start is not None and slot.start_minutes < target_start:
+                    return (
+                        f"{where}の応援先の{team_name(ref.team)}は、"
+                        f"{format_clock(slot.start_minutes)}に出撃開始前です"
+                    )
+                supports.append((index, slot, ref.team, late.team))
+        return _LatePlan(starts=starts, supports=tuple(supports))
+
+    @staticmethod
+    def _add_late_start_constraints(
+        variables: _Model,
+        confirmed: tuple[ResolvedAvailability, ...],
+        late: _LatePlan,
+        slots: tuple[TimeSlot, ...],
+    ) -> None:
+        """応援するメンバーを遅れて出撃する隊に所属させ、応援先のない出撃開始前の参加者を入れない。"""
+
+        model = variables.model
+        supporters: dict[int, set[int]] = {}
+        for index, _, _, source_team in late.supports:
+            supporters.setdefault(source_team, set()).add(index)
+            model.add(variables.membership[index, source_team] == 1)
+        for number in late.starts:
+            pre_start = [slot for slot in slots if not late.has_started(number, slot)]
+            for index, availability in enumerate(confirmed):
+                if index in supporters.get(number, set()):
+                    continue
+                if any(
+                    availability.covers(slot.start_minutes, slot.end_minutes)
+                    for slot in pre_start
+                ):
+                    model.add(variables.membership[index, number] == 0)
 
     @staticmethod
     def _validate_members(members: list[Member]) -> None:
@@ -262,6 +399,8 @@ class MembershipOptimizer:
         team_numbers: tuple[int, ...],
         leader_index: dict[int, int | None],
         slots: tuple[TimeSlot, ...],
+        late: _LatePlan,
+        allowed_shortfalls: frozenset[ShortfallKey] | None,
     ) -> _Levels:
         """時間帯ごとの出撃人数、上位隊、上限、戦力の制約を加え、目的の段の項を返す。"""
 
@@ -289,6 +428,8 @@ class MembershipOptimizer:
                     if not availability.member.has_vc or not (always or is_leader):
                         model.add(membership[index, number] == 0)
             for slot in slots:
+                if not late.has_started(number, slot):
+                    continue
                 count = sum(membership[index, number] for index in present[slot])
                 if is_top_team(number):
                     leader = leader_index[number]
@@ -298,18 +439,28 @@ class MembershipOptimizer:
                         == (TOP_TEAM_SIZE if leader_present else TOP_TEAM_SIZE - 1)
                     )
                     continue
-                model.add(count <= self.rules.member_cap)
+                support = late.support_count(number, slot)
+                model.add(count + support <= self.rules.member_cap)
+                # 休止は所属メンバーの参加で判定し、応援を含めない（FRM-048）。応援を受ける隊は
+                # 休止中であってはならない（FRM-042）。
                 rest = model.new_bool_var(f"rest_t{number}_{slot.start_minutes}")
                 model.add(count + rest >= 1)
+                if support:
+                    model.add(count >= 1)
                 shortage = model.new_int_var(
                     0, SORTIE_FLOOR, f"shortage_t{number}_{slot.start_minutes}"
                 )
-                model.add(count + shortage >= SORTIE_FLOOR)
+                model.add(count + support + shortage >= SORTIE_FLOOR)
                 squared = model.new_int_var(
                     0, SORTIE_FLOOR**2, f"shortage_sq_t{number}_{slot.start_minutes}"
                 )
                 model.add_multiplication_equality(squared, [shortage, shortage])
                 if slot.start_minutes < EXTENSION_BOUNDARY_MINUTES:
+                    if (
+                        allowed_shortfalls is not None
+                        and (number, slot.start_minutes) not in allowed_shortfalls
+                    ):
+                        model.add(rest == 0)
                     levels.rest_before.append((1, rest, 1))
                     levels.under_before.append((1, squared, SORTIE_FLOOR**2))
                 else:
@@ -374,8 +525,12 @@ class MembershipOptimizer:
         undecided: tuple[Member, ...],
         team_numbers: tuple[int, ...],
         leaders: tuple[Member, ...],
+        late: _LatePlan,
     ) -> TeamPlan:
-        """Solverの値を所属固定の編成へ変換する。並びは参加者一覧の順で決める。"""
+        """Solverの値を所属固定の編成へ変換する。並びは参加者一覧の順で決める。
+
+        出撃開始時刻と応援は運用者の指定から写す。Validatorが指定との一致を確かめる（FRM-047）。
+        """
 
         order = {member: position for position, member in enumerate(source)}
         teams: list[TeamMembership] = []
@@ -388,7 +543,9 @@ class MembershipOptimizer:
                 ),
                 key=lambda member: (member != leader, order[member]),
             )
-            teams.append(TeamMembership(number, leader, tuple(assigned)))
+            teams.append(
+                TeamMembership(number, leader, tuple(assigned), late.starts.get(number))
+            )
         waiting = tuple(
             sorted(
                 (
@@ -399,4 +556,22 @@ class MembershipOptimizer:
                 key=lambda member: order[member],
             )
         )
-        return TeamPlan(teams=tuple(teams), waiting=waiting, undecided=undecided)
+        supports = tuple(
+            sorted(
+                (
+                    Support(confirmed[index].member, slot, target)
+                    for index, slot, target, _ in late.supports
+                ),
+                key=lambda support: (
+                    support.time_slot.start_minutes,
+                    support.team_number,
+                    order[support.member],
+                ),
+            )
+        )
+        return TeamPlan(
+            teams=tuple(teams),
+            waiting=waiting,
+            undecided=undecided,
+            supports=supports,
+        )

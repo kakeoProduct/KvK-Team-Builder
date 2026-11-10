@@ -19,16 +19,32 @@ from kvk_team.interfaces.cli.composition import (
     create_team_builder,
     default_rules,
     default_specification,
+    load_answers,
+)
+from kvk_team.interfaces.cli.main import (
+    EXIT_ANSWER_REQUIRED,
+    EXIT_INPUT_ERROR,
+    EXIT_TIMEOUT,
 )
 from kvk_team.team_building.adapters.input.markdown_member_parser import ParseError
 from kvk_team.team_building.adapters.optimization.errors import OptimizationError
+from kvk_team.team_building.adapters.output.shortfall_question_text import (
+    render_questions,
+)
+from kvk_team.team_building.adapters.persistence.json_answers_repository import (
+    AnswersLoadError,
+)
 from kvk_team.team_building.adapters.persistence.json_operator_settings_repository import (  # noqa: E501
     OperatorSettingsLoadError,
 )
 from kvk_team.team_building.adapters.persistence.json_team_master_repository import (
     TeamMasterLoadError,
 )
-from kvk_team.team_building.application.build_team_plan import BuildError
+from kvk_team.team_building.application.build_team_plan import (
+    BuildError,
+    LowerBoundShortfallError,
+)
+from kvk_team.team_building.application.ports import SearchTimeoutError
 from kvk_team.team_building.domain.specification import SpecificationError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -63,10 +79,12 @@ def compare(previous: str, current: str) -> str:
     return "\n".join(lines)
 
 
-def _default_build(seconds: float | None, settings: Path | None) -> Build:
-    """既定ルールのTeamBuilderと運用者の指定で生成する関数を返す。
+def _default_build(
+    seconds: float | None, settings: Path | None, answers_path: Path | None
+) -> Build:
+    """既定ルールのTeamBuilderと運用者の指定、回答で生成する関数を返す。
 
-    `settings`を省略すると同梱の架空のリーダー一覧を使う。
+    `settings`を省略すると同梱の架空のリーダー一覧を使い、`answers_path`を省略すると回答なしとする。
     """
 
     rules = (
@@ -75,8 +93,9 @@ def _default_build(seconds: float | None, settings: Path | None) -> Build:
         else replace(default_rules(), maximum_optimization_seconds=seconds)
     )
     specification = default_specification(settings)
+    answers = load_answers(answers_path)
     builder = create_team_builder(rules)
-    return lambda source: builder.build(source, specification)
+    return lambda source: builder.build(source, specification, answers)
 
 
 def _use_utf8_output() -> None:
@@ -110,6 +129,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
         type=Path,
         help="運用者の指定（settings.json）のパス。省略時は同梱の架空のリーダー一覧を使う",
     )
+    parser.add_argument(
+        "--answers",
+        type=Path,
+        help="番号付きの質問への回答（answers.json）のパス。省略時は回答なしで編成する",
+    )
     return parser
 
 
@@ -119,9 +143,15 @@ def main(argv: Sequence[str] | None = None, build: Build | None = None) -> int:
     _use_utf8_output()
     args = create_argument_parser().parse_args(argv)
     try:
-        builder = build or _default_build(args.seconds, args.settings)
+        builder = build or _default_build(args.seconds, args.settings, args.answers)
         source = args.input.read_text(encoding="utf-8")
         markdown = builder(source)
+    except LowerBoundShortfallError as error:
+        print(render_questions(error), file=sys.stderr, end="")
+        return EXIT_ANSWER_REQUIRED
+    except SearchTimeoutError as error:
+        print(f"エラー: {error}", file=sys.stderr)
+        return EXIT_TIMEOUT
     except (
         OSError,
         ParseError,
@@ -129,10 +159,11 @@ def main(argv: Sequence[str] | None = None, build: Build | None = None) -> int:
         BuildError,
         TeamMasterLoadError,
         OperatorSettingsLoadError,
+        AnswersLoadError,
         SpecificationError,
     ) as error:
         print(f"エラー: {error}", file=sys.stderr)
-        return 2
+        return EXIT_INPUT_ERROR
 
     output: Path = args.output
     previous_path = output.with_name(f"{output.stem}.previous{output.suffix}")

@@ -74,6 +74,7 @@ class SequencedOptimizer:
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        allowed_shortfalls: frozenset[tuple[int, int]] | None = None,
     ) -> OptimizationOutcome:
         """呼び出しを記録して、次の結果を返す。"""
 
@@ -132,6 +133,7 @@ class FixedBuildTeamPlan:
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        answers: Sequence[object] = (),
     ) -> ValidatedTeamPlan:
         """受け取った参加者と指定を記録して既知の検証済み編成を返す。"""
 
@@ -147,6 +149,7 @@ class FailingBuildTeamPlan:
         self,
         members: Sequence[Member],
         specification: OperatorSpecification,
+        answers: Sequence[object] = (),
     ) -> ValidatedTeamPlan:
         """常にBuildErrorを送出する。"""
 
