@@ -8,8 +8,11 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 HOOK_DIRECTORY = PROJECT_ROOT / "tools" / "hooks"
@@ -354,7 +357,7 @@ def test_git_guard_plain_judgment_matches_the_previous_splitting() -> None:
     ]
 
 
-def test_git_guard_scans_unclosed_substitutions_in_linear_time() -> None:
+def test_git_guard_quote_aware_judgment_runs_in_linear_time() -> None:
     """引用符を解釈する判定の時間が、入力の長さの2乗で増えない。
 
     `_blocked_operation`は長い入力でこの判定を行わないため、判定の関数を直接呼んで確かめる。
@@ -376,8 +379,10 @@ def test_git_guard_scans_unclosed_substitutions_in_linear_time() -> None:
         assert time.perf_counter() - started < 5
 
 
-def test_git_guard_judges_long_input_only_as_before() -> None:
-    """上限を超える長さの入力は、変更前と同じ判定だけで判定する（ADR 0033）。"""
+def test_git_guard_judges_long_input_only_as_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """上限を超える長さの入力は、ADR 0033より前と同じ判定だけで判定する。"""
 
     guard = _load_git_guard()
     hidden = "; echo `git reset --hard`"
@@ -386,10 +391,72 @@ def test_git_guard_judges_long_input_only_as_before() -> None:
         "git reset --hard"
     )
     assert guard._blocked_operation("x" * (limit - len(hidden) + 1) + hidden) is None
-    # 変更前と同じ判定は、長さにかかわらず行う。
+    # ADR 0033より前と同じ判定は、長さにかかわらず行う。
     assert guard._blocked_operation("x" * limit + "; git reset --hard") == (
         "git reset --hard"
     )
+
+    # 上限を超えると、引用符を解釈する判定を呼ばない。
+    called: list[int] = []
+    original = guard._command_segments
+
+    def recording(command: str, depth: int = 0) -> Iterator[list[str]]:
+        called.append(len(command))
+        return original(command, depth)
+
+    monkeypatch.setattr(guard, "_command_segments", recording)
+    guard._blocked_operation("x" * (limit + 1))
+    assert called == []
+    guard._blocked_operation("x" * limit)
+    assert called == [limit]
+
+
+def test_git_guard_misses_above_the_limit_only_what_adr_0033_accepts() -> None:
+    """上限を超えた入力で見逃す形と止める形を、ADR 0033の影響の一覧のとおりに固定する。
+
+    見逃す形は、利用者が2026-11-08に受け入れた範囲である（ADR 0033より前も見逃す）。
+    """
+
+    guard = _load_git_guard()
+    padding = "x" * guard.MAX_QUOTE_AWARE_LENGTH + "\n"
+    for missed in (
+        "echo $(git reset --hard)",
+        "echo `git reset --hard`",
+        "sh -c 'git reset --hard'",
+        "eval 'git reset --hard'",
+        "(git reset --hard)",
+        "git reset --hard # don't",
+        "true&git reset --hard",
+    ):
+        assert guard._blocked_operation(padding + missed) is None, missed
+    for stopped in (
+        "cat <<'E'\ngit reset --hard\nE",
+        "eval git reset --hard",
+    ):
+        assert guard._blocked_operation(padding + stopped) == "git reset --hard", (
+            stopped
+        )
+
+
+def test_git_guard_keeps_push_confirmation_near_the_limit() -> None:
+    """`bash -o`の並びでも、上限の前後で通常のpushの確認を時間内に返す。"""
+
+    guard = _load_git_guard()
+    prefix = "git push origin x; "
+    words = (guard.MAX_QUOTE_AWARE_LENGTH - len(prefix)) // len("bash -o ")
+    for count in (words, words + 1):
+        command = prefix + "bash -o " * count
+        started = time.perf_counter()
+        assert guard._blocked_operation(command) == "git push"
+        assert time.perf_counter() - started < 5
+
+
+def test_git_guard_resumes_shell_scan_after_skipped_option_values() -> None:
+    """`-c`の走査は、読み飛ばしたOptionの値の次の語から続ける。"""
+
+    guard = _load_git_guard()
+    tokens = ["bash", "-o", "pipefail", "bash", "-c", "git reset --hard"]
+    assert guard._shell_script(tokens) == "git reset --hard"
 
 
 def test_git_guard_fails_closed_on_unreadable_input() -> None:

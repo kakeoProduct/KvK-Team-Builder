@@ -37,7 +37,7 @@ PIPE_TO_SHELL = re.compile(
 )
 # 入れ子の判定の深さの上限。超えた分は判定しない。
 MAX_NESTING = 8
-# 引用符を解釈する判定を行う入力の長さの上限。超えた入力は変更前と同じ判定だけにする。
+# 引用符を解釈する判定を行う入力の長さの上限。超えた入力はADR 0033より前と同じ判定だけにする。
 # 判定の時間に上限をかけ、時間切れのHookが判定を出さずに通常のpushの確認を落とすのを防ぐ。
 MAX_QUOTE_AWARE_LENGTH = 20000
 LINE_CONTINUATION = re.compile(r"\\\r?\n")
@@ -245,10 +245,12 @@ def _skip_heredoc_bodies(
 
 
 def _plain_segments(command: str) -> Iterator[list[str]]:
-    """変更前と同じく、引用符を解釈せずにすべての区切りで分けた区間を返す。
+    """ADR 0033より前と同じく、引用符を解釈せずに区切りで分けた区間を返す。
 
-    引用符の範囲の解釈がShellとずれても、変更前に拒否または確認していた入力を緩めないため、この判定も
-    必ず行い、厳しいほうを採る。字句解析に失敗した区間は、変更前と同じく読み飛ばす（ADR 0033）。
+    区切りは`;`、`|`、`&&`、`||`、改行で、単独の`&`では分けない。
+
+    引用符の範囲の解釈がShellとずれても、ADR 0033より前に拒否または確認していた入力を緩めないため、この判定も
+    必ず行い、厳しいほうを採る。字句解析に失敗した区間は、ADR 0033より前と同じく読み飛ばす。
     """
 
     for segment in PLAIN_SEPARATOR.split(command):
@@ -422,12 +424,12 @@ def _is_force_push(options: list[str]) -> bool:
 def _blocked_operation(command: str) -> str | None:
     """拒否対象の操作名を返す。
 
-    変更前と同じ判定と、引用符を解釈する判定（`MAX_QUOTE_AWARE_LENGTH`以下の入力だけ）の厳しい
+    ADR 0033より前と同じ判定と、引用符を解釈する判定（`MAX_QUOTE_AWARE_LENGTH`以下の入力だけ）の厳しい
     ほうを返す。拒否を通常のpushの確認より優先する。
     """
 
     pushes = False
-    # 変更前と同じ判定を先に行い、引用符を解釈する判定に左右されずに拒否を返す。
+    # ADR 0033より前と同じ判定を先に行い、引用符を解釈する判定に左右されずに拒否を返す。
     quote_aware = (
         _command_segments(command) if len(command) <= MAX_QUOTE_AWARE_LENGTH else ()
     )

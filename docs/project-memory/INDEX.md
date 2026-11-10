@@ -14,6 +14,7 @@
 
 | セッション | 状態 | タグ | 関連パス数 |
 |---|---|---|---:|
+| [Review AgentのScript化の残りのNiceと振り返りの数え方を直す](sessions/2026/2026-11-09T141516Z-review-agents-remaining-nice.md) | current | ai-harness | 9 |
 | [Review AgentのBashを固定のScriptと閉じた文法に限り、Git保護を2つの判定にする](sessions/2026/2026-11-08T163438Z-review-agents-review-query.md) | current | ai-harness | 30 |
 | [通常モードのグループの要件を要件定義書へ反映](sessions/2026/2026-11-08T153714Z-normal-mode-grouping-requirements.md) | current | requirements, review | 7 |
 | [安全策のHookの例外処理をそろえ、Review AgentのBashの扱いを別の変更へ分ける](sessions/2026/2026-11-05T130722Z-align-hook-parse-failures.md) | current | ai-harness | 4 |
