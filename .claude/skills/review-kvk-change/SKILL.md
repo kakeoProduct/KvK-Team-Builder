@@ -25,7 +25,8 @@ effort: high
    未追跡のファイルの一覧をレビュー担当へ渡す。指紋（`diff`）は作業ツリー全体から計算するため、
    渡さない変更が指紋に入らないようにする。
 3. 変更されたコードとテストに加え、`README.md`、`docs/architecture.md`、
-   `docs/domain-model.md`、`src/kvk_team/team_building/adapters/persistence/team_master.json`の関連箇所を読む。
+   `docs/domain-model.md`、`src/kvk_team/team_building/adapters/persistence/team_master.json`、
+   `src/kvk_team/team_building/adapters/persistence/settings.example.json`の関連箇所を読む。
 4. 比較元や期待動作が曖昧な場合は記録し、要件を推測で作らない。
 5. 差分があれば、文書だけの変更（要件定義書、ADR、README、AGENTS、architecture、domain-model、
    Skill、Review Agent定義、開発手順など）もレビューの対象とし、「コードを変えていない」ことを
@@ -45,8 +46,8 @@ effort: high
 - `kvk-architecture-reviewer`: 依存境界、失敗処理、互換性、セキュリティ
 - `kvk-test-reviewer`: 回帰不足、誤検知するテスト、決定性、CI範囲
 - `kvk-requirements-reviewer`: 出典との一致、考慮漏れ、曖昧さ、矛盾、検証可能性、要件ID。
-  コードだけの変更では、実装が要件（`docs/requirements/`、`team_master.json`の運用値、
-  `web/`の要件定義書）と出典に合っているかを確かめる
+  コードだけの変更では、実装が要件（`docs/requirements/`、`team_master.json`の常設の既定値、
+  `settings.example.json`の運用者の指定の例、`web/`の要件定義書）と出典に合っているかを確かめる
 
 すべてのレビュー担当へ、読み取り専用で作業し、ファイルと行を示した実行可能な指摘だけを
 返すよう指示する。全結果を待ってから統合する。カスタムエージェント選択がない環境で、
@@ -149,10 +150,11 @@ effort: high
    再レビューでは「前回の指摘の判定」に前回の指摘ごとの判定を書き、対応状況には今回の指摘を載せる。
 2. Git管理外の`tmp/reviews/<branch名の/を-に置き換えた名前>.md`へ保存する。秘密情報、個人情報、
    長いログを含めない。レビュー結果、Pull Requestのコメントと本文のどれにも、次の規則を当てはめる。`tmp/review-sources/`の資料にある実運用の参加者名は転記せず、役割（例:
-   「第2隊のリーダー」）や匿名の表記で書く。基準ブランチにコミット済みのREADME、`team_master.json`、
+   「第2隊のリーダー」）や匿名の表記で書く。基準ブランチにコミット済みのREADME、`team_master.json`、`settings.example.json`、
    `tests/`、`sample/`に契約や試験データとして載る名前は、書いてよい。レビュー対象の差分で新しく
    加わる名前は、この対象外にしない。Git管理外の本物のチームマスタ（`--team-master`で指定するファイル、
-   ADR 0026）にある集結主名、代理集結主名、役割、運用メモも転記しない。`AGENTS.md`の伏せる語の規則
+   ADR 0026）にある集結主名、代理集結主名、役割、運用メモも転記しない。本物の`settings.json`（`--settings`で
+   指定するファイル）にあるリーダー一覧などの運用者の指定も転記しない。`AGENTS.md`の伏せる語の規則
    （ADR 0026）に当たる語も書かない。
 3. `gh pr list --state open --head <branch> --json number,url`で対象branchのopenなPull Requestを
    探す。1件あれば、投稿の前に次の2つを確かめる。

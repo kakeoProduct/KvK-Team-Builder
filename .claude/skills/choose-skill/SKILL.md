@@ -13,7 +13,7 @@ disable-model-invocation: true
 
 ## Repository固有の経路
 
-- 編成人数、VC、集結主、参加時刻、戦力関係、警告、目的関数、入力記法の変更:
+- 編成人数、VC、リーダー、参加時刻、戦力関係、警告、目的関数、入力記法の変更:
   `$change-kvk-rules`
 - コード、文書、Pull Request、ブランチ差分のレビュー: `$review-kvk-change`
 - Web UIの実装、変更、レビュー: `$apple-design`

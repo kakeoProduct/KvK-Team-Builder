@@ -1124,13 +1124,16 @@ def test_review_covers_document_only_changes_and_requirements() -> None:
         "検証可能性",
         "要件ID",
         "運用者への確認事項",
-        "契約として載る集結主名、人数、イベント時間は対象外とする",
+        "契約として載るリーダー名、人数、イベント時間は対象外とする",
         "基準ブランチにコミット済みのtests/とsample/の試験データにある名前は、レビュー結果へ書いてよい",
         "対象差分でtests/、sample/、文書へ新しく加わるデータが、出典の参加者一覧に由来しないかは必ず確かめる",
-        "基準ブランチにコミット済みのREADMEとteam_master.jsonに契約として載る",
+        "基準ブランチにコミット済みのREADME、team_master.json、settings.example.jsonに"
+        "契約として載る",
         "出典の参加者一覧に由来しないかは必ず確かめる",
         "Git管理外の本物のチームマスタ（--team-masterで指定するファイル、ADR 0026）にある"
         "集結主名、代理集結主名、役割、運用メモも秘密情報とする",
+        "本物のsettings.json（--settingsで指定するファイル）にあるリーダー一覧などの"
+        "運用者の指定も秘密情報とする",
     ):
         assert _compact(required) in instructions, required
 
@@ -1229,6 +1232,9 @@ def test_review_scope_exceptions_and_rereview_termination_are_explicit() -> None
         "レビュー対象の差分で新しく加わる名前は、この対象外にしない",
         "Git管理外の本物のチームマスタ（`--team-master`で指定するファイル、ADR 0026）にある"
         "集結主名、代理集結主名、役割、運用メモも転記しない",
+        "本物の`settings.json`（`--settings`で指定するファイル）にあるリーダー一覧などの"
+        "運用者の指定も転記しない",
+        "基準ブランチにコミット済みのREADME、`team_master.json`、`settings.example.json`、",
         "対象はPull Request全体の差分（基準ブランチからの差分）とし",
         "amendやrebaseで前回の`head`がなくなった場合は",
         "PRのhead（`gh pr view <番号> --json headRefOid`）が、レビューした版と同じであること",
@@ -1866,6 +1872,7 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
     hidden_items = (
         "実運用の参加者情報",
         "本物のチームマスタ（集結主、代理集結主、役割、運用メモ）",
+        "本物のsettings.jsonにある運用者の指定（リーダー一覧など）",
         "本物の参加者一覧から作った出力",
         "ADR 0026で伏せたゲーム名とイベント名",
     )
@@ -1927,4 +1934,137 @@ def test_rule_change_skill_points_to_existing_source_files() -> None:
     assert missing == []
     assert (
         "src/kvk_team/team_building/adapters/persistence/settings.example.json" in paths
+    )
+
+
+# 所属固定のモデル（ADR 0034）より前の編成ルールの語。「集結主」は、旧形式の本物のチームマスタを
+# 指す秘密情報の規則（この言い回し）にだけ残す。
+LEGACY_SECRET_PHRASE = _compact("集結主名、代理集結主名")
+# 隊の文字名（A〜K）を使った範囲、戦力関係、隊の名前。
+OLD_TEAM_LETTER = re.compile(r"[A-K](?:〜[A-K]|>=?[A-K]|隊)")
+
+
+def _stale_rule_terms(text: str) -> list[str]:
+    """詰めた本文から、旧ルールの語を返す。秘密情報の規則の言い回しは除く。"""
+
+    compact = _compact(text).replace(LEGACY_SECRET_PHRASE, "")
+    stale = OLD_TEAM_LETTER.findall(compact)
+    if "集結主" in compact:
+        stale.append("集結主")
+    return stale
+
+
+def test_stale_rule_terms_detects_wrapped_and_reworded_terms() -> None:
+    """旧語の検査が、折り返しと言い回しの違いに左右されず、秘密情報の規則だけを許す。"""
+
+    for text in (
+        "固定・代理\n集結主",
+        "A >\nB >= C",
+        "A〜Cの人数",
+        "人数、VC、集結主、時間帯",
+        "代理集結主を置く",
+        "A隊の集結主",
+    ):
+        assert _stale_rule_terms(text) != [], text
+    assert _stale_rule_terms("にある集結主名、\n代理集結主名、役割、運用メモ") == []
+    assert _stale_rule_terms("第1隊 > 第2隊 >= 第3隊") == []
+
+
+def test_harness_uses_current_team_terms() -> None:
+    """Review AgentとSkillが、隊の番号とリーダーの語で現行の編成ルールを述べる（ADR 0034）。"""
+
+    sources = (
+        sorted(AGENT_DIRECTORY.glob("*.toml"))
+        + sorted(SKILL_DIRECTORY.rglob("*.md"))
+        + sorted(SKILL_DIRECTORY.rglob("openai.yaml"))
+    )
+    assert len(sources) > len(EXPECTED_PROJECT_SKILLS)
+    stale = [
+        (source.relative_to(PROJECT_ROOT).as_posix(), term)
+        for source in sources
+        for term in _stale_rule_terms(source.read_text(encoding="utf-8"))
+    ]
+    assert stale == []
+
+    # 秘密情報の規則の言い回しが実在し、除く対象が空振りしていない。
+    review_skill = (SKILL_DIRECTORY / "review-kvk-change" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    with (AGENT_DIRECTORY / "kvk-requirements-reviewer.toml").open("rb") as source:
+        requirements = tomllib.load(source)["developer_instructions"]
+    for text in (review_skill, requirements):
+        assert LEGACY_SECRET_PHRASE in _compact(text)
+
+    with (AGENT_DIRECTORY / "kvk-domain-reviewer.toml").open("rb") as source:
+        domain = _compact(tomllib.load(source)["developer_instructions"])
+    for required in (
+        "所属の固定",
+        "リーダー一覧の順と隊の番号",
+        "第1〜3隊の所属（リーダーを含めて8人、別枠のリーダーの隊は7人、全員VC、リーダー以外は"
+        "全時間帯に参加）と出撃（リーダー不在の時間帯は7人）",
+        "上位隊の人数は時間帯ごとの出撃だけでなく所属で確かめる",
+        "第4隊以降の上限",
+        "第1隊 > 第2隊 >= 第3隊",
+        "24:00より前の休止（必須条件）と24:00以降の休止・第4隊以降の8人未満・リーダー不在（警告）",
+        "代理リーダーを置かないこと",
+    ):
+        assert _compact(required) in domain, required
+
+    rules_skill = (SKILL_DIRECTORY / "change-kvk-rules" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    router = (SKILL_DIRECTORY / "choose-skill" / "SKILL.md").read_text(encoding="utf-8")
+    assert _compact("人数、VC、リーダー、時間枠") in _compact(rules_skill)
+    assert _compact("編成人数、VC、リーダー、参加時刻") in _compact(router)
+
+
+def test_operator_settings_are_read_and_checked_as_examples() -> None:
+    """運用者の指定の例を読み、例への追加が本物の指定に由来しないかを確かめる（ADR 0034）。"""
+
+    example = "src/kvk_team/team_building/adapters/persistence/settings.example.json"
+    review_skill = _compact(
+        (SKILL_DIRECTORY / "review-kvk-change" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    rules_skill = _compact(
+        (SKILL_DIRECTORY / "change-kvk-rules" / "SKILL.md").read_text(encoding="utf-8")
+    )
+    with (AGENT_DIRECTORY / "kvk-requirements-reviewer.toml").open("rb") as source:
+        requirements = _compact(tomllib.load(source)["developer_instructions"])
+    # 最初に読む一覧に例がある。照合先など別の行のパスに偶然一致しないよう、「読む」までを照合する。
+    for text, required in (
+        (review_skill, f"team_master.json`、`{example}`の関連箇所を読む"),
+        (rules_skill, f"team_master.json`、`{example}`を読む"),
+        (requirements, f"team_master.json、{example}を読む"),
+    ):
+        assert _compact(required) in text, required
+    assert (
+        _compact(
+            "対象差分でsettings.example.jsonへ新しく加わる名前が、本物のsettings.jsonや"
+            "出典の参加者一覧に由来しないかも必ず確かめる"
+        )
+        in requirements
+    )
+    bug_report = yaml.safe_load(
+        (PROJECT_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    fields = {field.get("id"): field for field in bug_report["body"]}
+    assert (
+        "本物のチームマスタとsettings.jsonの内容は貼らないでください"
+        in (fields["additional-context"]["attributes"]["description"])
+    )
+    agents_policy = _compact((PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+    assert (
+        _compact("`--settings`も付けず、同梱の架空のリーダー一覧を使います")
+        in agents_policy
+    )
+    template = _compact(
+        (PROJECT_ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert (
+        _compact("`--settings`と`--team-master`を付けずに同梱の例で編成した")
+        in template
     )
