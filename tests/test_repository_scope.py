@@ -15,6 +15,9 @@ from pathlib import Path
 from kvk_team.team_building.adapters.persistence.json_answers_repository import (
     parse_answers,
 )
+from kvk_team.team_building.adapters.persistence.json_plan_record_repository import (
+    parse_plan_record,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -417,6 +420,10 @@ def test_data_format_examples_follow_their_definitions() -> None:
         if kind == "json" and name == "answers.json":
             # 回答の例は、DAT-009の形をRepositoryで実際に読めることを確かめる
             assert parse_answers(json.loads(body)), name
+            continue
+        if kind == "json" and name == "チーム編成.json":
+            # 編成のJSONの例は、DAT-010の形をRepositoryで実際に読めることを確かめる
+            assert parse_plan_record(json.loads(body)).teams, name
             continue
         if kind == "json":
             assert name == "settings.json", name

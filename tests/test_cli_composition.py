@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from kvk_team.interfaces.cli.composition import (
     default_rules,
     default_specification,
 )
+from kvk_team.interfaces.cli.team_builder import TeamBuildResult
 from kvk_team.team_building.adapters.optimization.errors import (
     OptimizationTimeoutError,
 )
@@ -40,6 +42,7 @@ from kvk_team.team_building.application.build_team_plan import (
 )
 from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.plan import TimeSlot
+from kvk_team.team_building.domain.plan_record import PlanRecord, RecordedTeam
 from kvk_team.team_building.domain.rules import KvKRules
 from kvk_team.team_building.domain.specification import (
     MemberRef,
@@ -85,10 +88,14 @@ class RecordingBuilder:
         markdown: str,
         specification: OperatorSpecification,
         answers: tuple[Answer, ...] = (),
-    ) -> str:
+        *,
+        created_at: datetime,
+    ) -> TeamBuildResult:
         RecordingBuilder.specifications.append(specification)
         RecordingBuilder.answers.append(tuple(answers))
-        return "出力\n"
+        leader = specification.leaders[0]
+        record = PlanRecord(created_at, (RecordedTeam(1, leader, (leader,)),))
+        return TeamBuildResult("出力\n", record, None)
 
 
 @pytest.fixture
@@ -165,7 +172,7 @@ def test_cli_uses_settings_and_team_master_given_by_option(
     exit_code = cli_main.main(
         [
             str(_input(tmp_path)),
-            str(tmp_path / "出力.md"),
+            str(tmp_path / "output"),
             "--team-master",
             str(team_master_path),
             "--settings",
@@ -178,7 +185,8 @@ def test_cli_uses_settings_and_team_master_given_by_option(
     assert [spec.leaders[0].name for spec in recording_builder.specifications] == [
         "ユウ"
     ]
-    assert (tmp_path / "出力.md").read_text(encoding="utf-8") == "出力\n"
+    (folder,) = (tmp_path / "output").iterdir()
+    assert (folder / "チーム編成.md").read_text(encoding="utf-8") == "出力\n"
     assert "同梱の例" not in capsys.readouterr().err
 
 
@@ -189,7 +197,7 @@ def test_cli_uses_bundled_examples_without_options(
 ) -> None:
     """`--settings`を省略すると同梱の架空のリーダー一覧を使い、付け忘れに気づけるよう注意を出す。"""
 
-    exit_code = cli_main.main([str(_input(tmp_path)), str(tmp_path / "出力.md")])
+    exit_code = cli_main.main([str(_input(tmp_path)), str(tmp_path / "output")])
 
     assert exit_code == 0
     assert [rules.team_master for rules in recording_builder.rules] == [
@@ -214,7 +222,7 @@ def test_cli_reports_team_master_load_error_with_exit_code_2(
     monkeypatch.setattr(cli_main, "create_team_builder", broken_builder)
 
     with pytest.raises(SystemExit) as exit_info:
-        cli_main.main([str(_input(tmp_path)), str(tmp_path / "出力.md")])
+        cli_main.main([str(_input(tmp_path)), str(tmp_path / "output")])
 
     assert exit_info.value.code == 2
     assert "エラー: チームマスタを読み込めません" in capsys.readouterr().err
@@ -236,7 +244,7 @@ def test_cli_reports_missing_option_path_with_exit_code_2(
 ) -> None:
     """指定したファイルがなければ、パスを示して終了コード2で終え、出力を書かない。"""
 
-    output_path = tmp_path / "出力.md"
+    output_path = tmp_path / "output"
 
     with pytest.raises(SystemExit) as exit_info:
         cli_main.main(
@@ -260,7 +268,7 @@ def test_cli_reports_leader_missing_from_roster_with_exit_code_2(
     _write_settings(
         settings_path, [("山田", "SKY"), ("いない人", "SKY"), ("いろは", "SKY")]
     )
-    output_path = tmp_path / "出力.md"
+    output_path = tmp_path / "output"
 
     with pytest.raises(SystemExit) as exit_info:
         cli_main.main(
@@ -297,6 +305,8 @@ def test_module_entry_point_shows_usage() -> None:
     assert "参加者一覧Markdownのパス" in result.stdout
     assert "--team-master" in result.stdout
     assert "--settings" in result.stdout
+    assert "--previous" in result.stdout
+    assert "出力のフォルダ" in result.stdout
 
 
 def test_console_script_resolves_to_cli_main() -> None:
@@ -335,7 +345,9 @@ def _fail_with(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
             markdown: str,
             specification: OperatorSpecification,
             answers: tuple[Answer, ...] = (),
-        ) -> str:
+            *,
+            created_at: datetime,
+        ) -> TeamBuildResult:
             raise error
 
     monkeypatch.setattr(cli_main, "create_team_builder", FailingBuilder)
@@ -373,7 +385,7 @@ def test_cli_reports_errors_with_exit_code_and_writes_no_output(
 ) -> None:
     """出力できない場合は出力を書かずに理由を示し、入力のエラーと解なしは2、時間切れは4で終える。"""
 
-    output_path = tmp_path / "出力.md"
+    output_path = tmp_path / "output"
     _fail_with(monkeypatch, error)
 
     with pytest.raises(SystemExit) as exit_info:
@@ -391,7 +403,7 @@ def test_cli_shows_numbered_questions_with_exit_code_3(
 ) -> None:
     """運用者の判断が要る場合は、番号付きの質問と注記を示し、出力を書かずに3で終える（FRM-075）。"""
 
-    output_path = tmp_path / "出力.md"
+    output_path = tmp_path / "output"
     _fail_with(monkeypatch, SHORTFALL)
 
     with pytest.raises(SystemExit) as exit_info:
@@ -425,7 +437,7 @@ def test_cli_passes_answers_file_to_builder(
             ]
         },
     )
-    arguments = [str(_input(tmp_path)), str(tmp_path / "出力.md")]
+    arguments = [str(_input(tmp_path)), str(tmp_path / "output")]
 
     exit_code = cli_main.main([*arguments, "--answers", str(answers_path)])
 
@@ -439,7 +451,7 @@ def test_cli_without_answers_passes_no_answers(
 ) -> None:
     """--answersを省略すれば、回答なしで編成する。"""
 
-    cli_main.main([str(_input(tmp_path)), str(tmp_path / "出力.md")])
+    cli_main.main([str(_input(tmp_path)), str(tmp_path / "output")])
 
     assert recording_builder.answers[-1] == ()
 
@@ -454,7 +466,7 @@ def test_cli_reports_answers_load_error_with_exit_code_2(
     answers_path = _write_answers(
         tmp_path / "answers.json", {"answers": [{"number": 1}]}
     )
-    output_path = tmp_path / "出力.md"
+    output_path = tmp_path / "output"
     arguments = [str(_input(tmp_path)), str(output_path)]
 
     with pytest.raises(SystemExit) as exit_info:

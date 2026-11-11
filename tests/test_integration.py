@@ -1,5 +1,6 @@
 """運用形式の参加者一覧からMarkdownを生成するフローの統合テスト。"""
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from deterministic_solver import deterministic_rules
@@ -14,6 +15,7 @@ from kvk_team.team_building.domain.specification import resolve_leaders
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_ROSTER = PROJECT_ROOT / "sample" / "参加者一覧.md"
+CREATED_AT = datetime(2026, 1, 1, 21, 0, tzinfo=timezone(timedelta(hours=9)))
 
 
 def test_sample_roster_contains_every_bundled_leader() -> None:
@@ -34,8 +36,10 @@ def test_sample_roster_builds_valid_markdown() -> None:
 
     source = SAMPLE_ROSTER.read_text(encoding="utf-8")
 
-    markdown = create_team_builder(deterministic_rules()).build(
-        source, default_specification()
+    markdown = (
+        create_team_builder(deterministic_rules())
+        .build(source, default_specification(), created_at=CREATED_AT)
+        .markdown
     )
 
     assert "## 第1隊 リーダー: 山田" in markdown

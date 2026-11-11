@@ -1,5 +1,6 @@
 """CLIで使う既定の編成ルール、運用者の指定、部品を組み立てる。"""
 
+from dataclasses import replace
 from pathlib import Path
 
 from kvk_team.interfaces.cli.team_builder import TeamBuilder
@@ -19,12 +20,16 @@ from kvk_team.team_building.adapters.persistence.json_operator_settings_reposito
     JsonOperatorSettingsRepository,
     default_settings_path,
 )
+from kvk_team.team_building.adapters.persistence.json_plan_record_repository import (
+    JsonPlanRecordRepository,
+)
 from kvk_team.team_building.adapters.persistence.json_team_master_repository import (  # noqa: E501
     JsonTeamMasterRepository,
     load_default_team_master,
 )
 from kvk_team.team_building.application.build_team_plan import BuildTeamPlan
 from kvk_team.team_building.domain.answers import Answer
+from kvk_team.team_building.domain.plan_record import PlanRecord
 from kvk_team.team_building.domain.rules import KvKRules
 from kvk_team.team_building.domain.specification import OperatorSpecification
 from kvk_team.team_building.domain.validation import TeamPlanValidator
@@ -45,15 +50,31 @@ def default_rules(team_master_path: Path | None = None) -> KvKRules:
     return KvKRules(team_master=team_master)
 
 
-def default_specification(settings_path: Path | None = None) -> OperatorSpecification:
-    """運用者の指定（`settings.json`）を返す。
+def default_specification(
+    settings_path: Path | None = None, previous_plan: PlanRecord | None = None
+) -> OperatorSpecification:
+    """運用者の指定（`settings.json`）に前回の編成を持たせて返す。
 
     パスを省略すると同梱の架空の例（サンプルの参加者一覧のリーダー）を使う。本物の指定は
     個人名を含むため、イベントのフォルダ（Git管理外）に置いてパスで渡す（DAT-001、DAT-007）。
     """
 
     path = default_settings_path() if settings_path is None else settings_path
-    return JsonOperatorSettingsRepository(path).load()
+    specification = JsonOperatorSettingsRepository(path).load()
+    if previous_plan is None:
+        return specification
+    return replace(specification, previous_plan=previous_plan)
+
+
+def load_previous_plan(previous_path: Path | None) -> PlanRecord | None:
+    """前回の編成（`--previous`で渡した編成のJSON、DAT-010）を返す。パスを省略すればNoneとする。
+
+    編成のJSONは個人名を含むため、イベントのフォルダの`output/`（Git管理外）に置く（DAT-001、DAT-008）。
+    """
+
+    if previous_path is None:
+        return None
+    return JsonPlanRecordRepository(previous_path).load()
 
 
 def load_answers(answers_path: Path | None) -> tuple[Answer, ...]:

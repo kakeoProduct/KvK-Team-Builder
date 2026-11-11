@@ -13,6 +13,7 @@ import difflib
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -99,7 +100,11 @@ def _default_build(
     specification = default_specification(settings)
     answers = load_answers(answers_path)
     builder = create_team_builder(rules)
-    return lambda source: builder.build(source, specification, answers)
+    return lambda source: (
+        builder.build(
+            source, specification, answers, created_at=datetime.now().astimezone()
+        ).markdown
+    )
 
 
 def _use_utf8_output() -> None:

@@ -1813,6 +1813,13 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
         )
         in agents_policy
     )
+    assert (
+        _compact(
+            "本物の`answers.json`の回答と、出力のフォルダの編成のJSON"
+            "（`--previous`で渡すものを含む）も、同じく書きません"
+        )
+        in agents_policy
+    )
     pull_request = (SKILL_DIRECTORY / "create-github-pr" / "SKILL.md").read_text(
         encoding="utf-8"
     )
@@ -1884,6 +1891,7 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
         "実運用の参加者情報",
         "本物のチームマスタ（集結主、代理集結主、役割、運用メモ）",
         "本物のsettings.jsonにある運用者の指定（リーダー一覧など）",
+        "本物のanswers.jsonの回答",
         "本物の参加者一覧から作った出力",
         "ADR 0026で伏せたゲーム名とイベント名",
     )

@@ -7,6 +7,7 @@ from typing import Protocol
 from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.member import Member
 from kvk_team.team_building.domain.plan import TeamPlan
+from kvk_team.team_building.domain.plan_record import PlanRecord
 from kvk_team.team_building.domain.specification import OperatorSpecification
 from kvk_team.team_building.domain.team_master import TeamMaster
 from kvk_team.team_building.domain.validation import ValidationReport
@@ -94,3 +95,10 @@ class AnswersRepository(Protocol):
 
     def load(self) -> tuple[Answer, ...]:
         """運用者の回答を読み込む。"""
+
+
+class PlanRecordRepository(Protocol):
+    """永続化方式から前回の編成（編成の記録）を取得する境界（DAT-010）。"""
+
+    def load(self) -> PlanRecord:
+        """前回の編成を読み込む。"""

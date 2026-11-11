@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -20,7 +21,8 @@ from kvk_team.team_building.application.ports import (
     SolvedPlan,
 )
 from kvk_team.team_building.domain.member import Member, Tier
-from kvk_team.team_building.domain.plan import TeamPlan, TimeSlot
+from kvk_team.team_building.domain.plan import TeamMembership, TeamPlan, TimeSlot
+from kvk_team.team_building.domain.plan_record import PlanRecord, RecordedMember
 from kvk_team.team_building.domain.specification import (
     MemberRef,
     OperatorSpecification,
@@ -41,6 +43,7 @@ SPECIFICATION = OperatorSpecification(
     leaders=tuple(MemberRef(member.name, member.alliance) for member in LEADERS)
 )
 WAITING = Member("いろは", "未設定", Tier.G7, has_vc=True)
+CREATED_AT = datetime(2026, 1, 1, 21, 0, tzinfo=timezone(timedelta(hours=9)))
 
 
 @dataclass
@@ -354,10 +357,25 @@ def test_use_case_rejects_leader_missing_from_roster_before_optimizing() -> None
     assert optimizer.call_count == 0
 
 
+def _leaders_plan() -> TeamPlan:
+    """リーダーだけが所属する3隊の編成を返す。編成の記録は隊を1つ以上要する。"""
+
+    return TeamPlan(
+        teams=tuple(
+            TeamMembership(number, leader, (leader,))
+            for number, leader in enumerate(LEADERS, start=1)
+        ),
+        waiting=(),
+        undecided=(),
+    )
+
+
 def test_cli_team_builder_parses_runs_use_case_and_exports_validated_plan() -> None:
     """CLIの組み立ては、解析結果と指定をユースケースへ渡し、検証済み編成だけを出力する。"""
 
-    validated = ValidatedTeamPlan(plan=_plan(), report=_report(), proven_optimal=True)
+    validated = ValidatedTeamPlan(
+        plan=_leaders_plan(), report=_report(), proven_optimal=True
+    )
     use_case = FixedBuildTeamPlan(validated)
     exporter = RecordingExporter()
     builder = TeamBuilder(
@@ -366,9 +384,40 @@ def test_cli_team_builder_parses_runs_use_case_and_exports_validated_plan() -> N
         exporter=exporter,
     )
 
-    assert builder.build("source", SPECIFICATION) == "exported\n"
+    result = builder.build("source", SPECIFICATION, created_at=CREATED_AT)
+
+    assert result.markdown == "exported\n"
+    assert result.record == PlanRecord.from_validated(validated, CREATED_AT)
+    assert result.previous_unmatched is None
     assert use_case.received == (MEMBERS, SPECIFICATION)
     assert exporter.received is validated
+
+
+def test_cli_team_builder_counts_previous_members_missing_from_roster() -> None:
+    """前回の編成があれば、今回の参加者一覧に当たらない人数を返す（ADR 0036）。"""
+
+    validated = ValidatedTeamPlan(
+        plan=_leaders_plan(), report=_report(), proven_optimal=True
+    )
+    record = PlanRecord.from_validated(validated, CREATED_AT)
+    gone = MemberRef("いない人", "未設定")
+    previous = replace(
+        record,
+        waiting=(*record.waiting, RecordedMember(gone)),
+    )
+    builder = TeamBuilder(
+        parser=FakeParser(MEMBERS),
+        build_team_plan=FixedBuildTeamPlan(validated),
+        exporter=RecordingExporter(),
+    )
+
+    result = builder.build(
+        "source",
+        replace(SPECIFICATION, previous_plan=previous),
+        created_at=CREATED_AT,
+    )
+
+    assert result.previous_unmatched == 1
 
 
 def test_cli_team_builder_does_not_export_when_use_case_fails() -> None:
@@ -382,5 +431,5 @@ def test_cli_team_builder_does_not_export_when_use_case_fails() -> None:
     )
 
     with pytest.raises(BuildError, match="検証NG"):
-        builder.build("source", SPECIFICATION)
+        builder.build("source", SPECIFICATION, created_at=CREATED_AT)
     assert exporter.received is None

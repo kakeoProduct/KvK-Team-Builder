@@ -71,6 +71,7 @@ tools/               PythonとFEに共通の品質ゲート
 team_master.json ─→ JsonTeamMasterRepository ─────────→ TeamMaster（KvKRules）
 settings.json ───→ JsonOperatorSettingsRepository ───→ OperatorSpecification
 answers.json ────→ JsonAnswersRepository ────────────→ tuple[Answer]
+前回のJSON ──────→ JsonPlanRecordRepository ─────────→ PlanRecord（OperatorSpecification.previous_plan）
                                                               ↓
 参加者一覧.md ─→ MarkdownMemberParser ─→ list[Member]         ↓
                                 ↓                             ↓
@@ -86,10 +87,10 @@ answers.json ────→ JsonAnswersRepository ─────────�
          ↓ 必須条件OK    ↘ 休止だけ: 最適ならLowerBoundShortfallError（番号付きの質問）、
                             最適と示せなければShortfallUndeterminedError。ほかのNGは再試行（上限でBuildError）
    ValidatedTeamPlan（編成＋警告・出撃の指標・待機・別枠・最適性・注記）
-                                ↓
-                     TeamPlanMarkdownExporter
-                                ↓
-                          チーム編成.md
+                ↓                                      ↓
+     TeamPlanMarkdownExporter        PlanRecord.from_validated → render_plan_record
+                ↓                                      ↓
+  <出力のフォルダ>/<実行の時刻>/チーム編成.md     <出力のフォルダ>/<実行の時刻>/チーム編成.json
 ```
 
 アプリケーションのユースケース`BuildTeamPlan`が、参加者と運用者の指定を受け取り、Optimizer、
@@ -115,6 +116,17 @@ Optimizerに探させます（`optimize`の`allowed_shortfalls`）。見つか�
 受け入れた指定の編成に休止が残れば、隊と序盤かどうかでまとめた番号付きの問い（`ShortfallQuestion`）を
 持つ`LowerBoundShortfallError`を送出します。アプリは回答を覚えず、運用者が同じファイルへ足していきます。
 
+出力は、CLIの2つ目の引数の出力のフォルダに、実行の時刻（現地時刻の`YYYYMMDD-HHMMSS`）のフォルダを新しく作って
+書きます。同じ名前があれば`-2`、`-3`を付け、前の出力を上書きしません（DAT-008、ADR 0036）。編成のMarkdownと
+一緒に、検証済み編成から作った編成の記録（`PlanRecord`）を編成のJSON（DAT-010）として書きます。終了コード2、3、4
+では何も書きません。時刻は`main`の`clock`から受け取り、テストでは固定します。
+
+運用者が共有した回の編成のJSONを`--previous`で渡すと、Repositoryが`PlanRecord`へ変換し、運用者の指定の
+`previous_plan`としてOptimizerとValidatorへ同じ値を渡します。この版のOptimizerとValidatorは使わず、前回からの
+移動の数（FRM-071、FRM-037の⑦）は分割案の5で加えます。`TeamBuilder`は今回の参加者一覧に当たらない人数だけを
+数え、CLIは編成に使わないことを標準エラーへ示し、出力した実行（終了コード0）では、その人数を名前なしで示します（作成者の仮定A-42の(6)）。前回の編成は回答を確かめる手順に
+影響しないため、FRM-090の性質(1)は前回の編成を変えた実行でも同じく成り立ちます（作成者の仮定A-42）。
+
 ## 設定の永続化境界
 
 設定は、Repositoryで管理する常設の既定値（チームマスタ）と、イベントごとに運用者が渡す指定
@@ -130,7 +142,13 @@ OperatorSpecificationRepository (Protocol)
     └── JsonOperatorSettingsRepository  settings.json（--settings、省略時は同梱の架空の例）
 AnswersRepository (Protocol)
     └── JsonAnswersRepository           answers.json（--answers、省略時は回答なし）
+PlanRecordRepository (Protocol)
+    └── JsonPlanRecordRepository        編成のJSON（--previous、省略時は前回の編成なし）。書き出しはrender_plan_record
 ```
+
+編成のJSON（DAT-010）は、出力するたびにイベントのフォルダの`output/<実行の時刻>/`（Git管理外）へ書き、前回の
+編成として読み戻します。版（`schema_version` 1）を持ち、違う版、未知の項目、型の誤り、成り立たない記録（同じ
+メンバーが2回、同じ番号の隊など）は、名前を書かずに位置と項目で示して読み込みエラーにします。
 
 運用者の回答（DAT-009）は、番号付きの質問への答えで、イベントのフォルダ（Git管理外）の`answers.json`に置きます。
 編成の前に決める指定（`settings.json`）と分けます（ADR 0035）。Repositoryは形式の変換だけを行い、回答の妥当性は
@@ -145,7 +163,7 @@ ADR 0029）。現在は`leaders`だけを読み、DAT-007のほかのキーは�
 無視せず、キーを示して読み込みエラーにします。同梱の`settings.example.json`は`sample/`の架空の
 リーダーで、`--settings`の省略時に使い、標準エラーへ注意を出します。
 
-JSON固有の辞書はRepository内で`TeamMaster`、`EventTimeSettings`、`OperatorSpecification`へ
+JSON固有の辞書はRepository内で`TeamMaster`、`EventTimeSettings`、`OperatorSpecification`、`Answer`、`PlanRecord`へ
 変換します。Optimizer以降はファイルパスやJSON構造を認識しません。上位隊の3隊×8人、出撃人数の
 下限の基本8人、延長境界時刻の24:00、30分単位の時間帯は利用者が決めた固定値で、`domain/team.py`の
 定数とします。戦力関係`第1隊 > 第2隊 >= 第3隊`は固定値ではなく、分割案の3でFRM-027へ置き換えるまで
