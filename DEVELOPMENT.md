@@ -191,9 +191,11 @@ Git保護のHookと`.env`の拒否を迂回できる`browser_run_code_unsafe`（
 | `tests/test_answer_acceptance.py` | 回答を確かめる手順（使わなかった、受け入れなかった注記、番号付きの質問、時間切れ） |
 | `tests/test_answer_properties.py` | 架空の世界（`tests/answer_world.py`）で、FRM-090の回答を受けた実行の性質 |
 | `tests/test_shortfall_question_text.py` | 番号付きの質問の文 |
-| `tests/test_late_start_cli.py` | 序盤の休止の質問から回答の受け入れまでのCLIの一連の処理 |
+| `tests/test_plan_record.py` | 編成の記録（前回の編成）の不変条件、名前を出さないエラー、今回の参加者一覧との照合 |
+| `tests/test_plan_record_repository.py` | 編成のJSONの書き出しと読み込み（版、時差、位置を示すエラー、生成した編成での往復） |
+| `tests/test_late_start_cli.py` | 序盤の休止の質問から回答の受け入れまでのCLIの一連の処理と、共有した回の編成のJSONを`--previous`で渡す実行 |
 | `tests/test_service.py` | Adapter調整、再試行、失敗伝播 |
-| `tests/test_cli.py` | UTF-8ファイル入出力と終了コード |
+| `tests/test_cli.py` | 実行の時刻のフォルダへのMarkdownとJSONの出力（上書きしない、`.md`の出力先の拒否）、`--previous`の注意と人数、終了コード |
 | `tests/test_integration.py` | 実運用サンプルを使った一連の処理 |
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
 | `tests/test_agent_hooks.py` | Git保護、読み取り専用の強制、ブラウザの出力先の制限、共有記憶のAgent Hook、迂回するToolの`permissions.deny` |

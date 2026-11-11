@@ -41,7 +41,9 @@
 | 別枠 | `TeamPlan.undecided` | 参加時間未定のため、どの隊にも入れないメンバー（FRM-060） |
 | 回答 | `Answer` | 番号付きの質問の対象の（隊、時間帯）への運用者の答え。遅れて出撃する隊を持つ（DAT-009） |
 | 番号付きの質問 | `ShortfallQuestion` | 下限の不足を、隊と序盤かどうかでまとめて運用者へ示す問い（FRM-075） |
-| 運用者の指定 | `OperatorSpecification` | 1回の編成で運用者が渡す指定の不変な値。現在はリーダー一覧（`MemberRef`の組）と、回答から受け入れた遅れて出撃する隊（`late_starts`） |
+| 運用者の指定 | `OperatorSpecification` | 1回の編成で運用者が渡す指定の不変な値。現在はリーダー一覧（`MemberRef`の組）と、回答から受け入れた遅れて出撃する隊（`late_starts`）と、前回の編成（`previous_plan`） |
+| 編成の記録 | `PlanRecord`（隊は`RecordedTeam`、待機と別枠のメンバーは`RecordedMember`） | 出力した編成の所属、出撃開始時刻、応援、待機、別枠と、総力モードの移動先を、メンバーを名前と同盟の組で指して持つ不変な値。編成のJSON（DAT-010）として書き、次の実行では前回の編成として受け取る |
+| 前回の編成 | `OperatorSpecification.previous_plan` | 運用者が共有した回の編成の記録。前回からの移動の数（FRM-071）を比べる基準で、この版では読み込みと今回の参加者一覧との照合だけに使う（ADR 0036） |
 | チームマスタ | `TeamMaster` | 戦闘時間と出撃人数の上限を持つ常設の既定値 |
 | 編成候補 | `TeamPlan` | 隊ごとの所属、待機、別枠を持つ、検証前の候補 |
 | 検証済み編成 | `ValidatedTeamPlan` | 必須条件を満たすことを確認した出力可能な編成と、その検証結果（警告、出撃の指標、待機、別枠）、最適性。必須条件エラーを含む検証結果からは生成できない |
@@ -49,7 +51,7 @@
 | 警告 | `Warning` | 編成を出力しながら運用者へ知らせる不足 |
 | 目的関数 | `Objective` | 複数の有効な編成から望ましいものを選ぶ優先度 |
 
-上の表は所属固定のモデル（ADR 0034）と、遅れて出撃する隊と応援（ADR 0035）の用語です。代理リーダー
+上の表は所属固定のモデル（ADR 0034）と、遅れて出撃する隊と応援（ADR 0035）、前回の編成（ADR 0036）の用語です。代理リーダー
 （当面置かない、FRM-003）などの目標仕様の用語は、要件定義書の用語表にあり、実装Issueで導入するときに
 この表へ追加します。以前の固定集結主（`RallyLeader`）、代理集結主（`SubstituteLeader`）、時間帯ごとに移れる
 `DynamicTeamPlan`、開始時刻未確定の`Standby`は使いません。以前の`Standby`は別枠に当たり、
@@ -88,6 +90,8 @@
 ### 値オブジェクトとドメインポリシー
 
 - `Tier`, `Availability`, `TimeSlot`, `MemberRef`, `SupportRef`, `LateStart`, `Answer`
+- `PlanRecord`, `RecordedTeam`, `RecordedMember`: 編成の記録。検証済み編成からだけ作り（`PlanRecord.from_validated`）、
+  同じメンバーの二重の置き場所、リーダーの欠けと重複、第1〜3隊の出撃開始時刻、成り立たない応援などを拒否する（作成者の仮定A-42の(3)）
 - `EventTimeSettings`
 - 利用者が決めた固定値: `TOP_TEAM_COUNT`, `TOP_TEAM_SIZE`, `SORTIE_FLOOR`, `EXTENSION_BOUNDARY_MINUTES`,
   `SLOT_MINUTES`（`domain/team.py`。ADR 0034）、`OPENING_MINUTES`, `FIRST_SUPPORTED_TEAM`（ADR 0035）
@@ -113,6 +117,7 @@ Repositoryを作らず、永続化の整合単位が明確なものにだけRepo
 - 参加可能時間の解決と時間枠への分割
 - リーダー一覧の参加者への解決（`resolve_leaders`）
 - ほかの指定によらない回答の誤りの確認（`check_answers`）
+- 前回の編成と今回の参加者一覧の照合（`PlanRecord.unmatched_count`）
 - 所属と参加時間、応援からの出撃の計算（`sorties`）
 - 編成の必須条件検証と警告生成
 - ソルバーへ渡す編成ポリシーの表現
@@ -138,13 +143,16 @@ Markdownの解析・出力や、編成人数、VC条件そのものは決めま�
 呼び出し側がRepositoryから読み込んで渡します。
 
 入力の解析と出力はインターフェース層が組み立てます。CLIでは`interfaces/cli/team_builder.py`の
-`TeamBuilder`が、Markdown Parser、`BuildTeamPlan`、Markdown Exporterをこの順に呼び出します。
+`TeamBuilder`が、Markdown Parser、`BuildTeamPlan`、Markdown Exporterをこの順に呼び出し、検証済み編成から
+編成の記録を作ります。`interfaces/cli/run_output.py`が、出力のフォルダの`<実行の時刻>/`へMarkdownと編成のJSONを
+書きます（ADR 0036）。
 Web Interface（#21）は、同じ`BuildTeamPlan`を別の入出力で呼び出します。
 
 ### アダプターとインフラストラクチャ
 
 - 入力側: CLI、将来のWeb UI、Markdown参加者Parser
-- 出力・接続側: JSONチームマスタRepository、運用者の指定（`settings.json`）Repository、OR-Tools CP-SAT Optimizer
+- 出力・接続側: JSONチームマスタRepository、運用者の指定（`settings.json`）Repository、回答（`answers.json`）
+  Repository、編成のJSONのRepository（書き出しと`--previous`の読み込み）、OR-Tools CP-SAT Optimizer
 - 表示側: Markdown Exporter、将来のWeb View Model Mapper
 
 アダプターは外部データをドメイン型へ変換し、外部形式固有の辞書、正規表現、ファイルパス、
@@ -160,6 +168,7 @@ src/kvk_team/
       team.py             隊の番号、固定値（上位隊、出撃人数の下限、延長境界時刻、30分単位）、現行の戦力関係
       specification.py    運用者の指定、リーダーの解決
       plan.py             時間枠、所属固定の編成候補、出撃の計算
+      plan_record.py      編成の記録（前回の編成）
       team_master.py      チームマスタ（戦闘時間、上限）
       rules.py            編成ルール（チームマスタを必須で受け取る）
       availability.py     参加可能時間の解決
@@ -171,7 +180,8 @@ src/kvk_team/
       input/markdown_member_parser.py
       output/team_plan_markdown_exporter.py
       persistence/json_team_master_repository.py、team_master.json、
-                  json_operator_settings_repository.py、settings.example.json
+                  json_operator_settings_repository.py、settings.example.json、
+                  json_answers_repository.py、json_plan_record_repository.py
       optimization/cp_sat_team_optimizer.py、errors.py
   battle_timing/          （各機能のIssueで追加する）
     domain/
@@ -179,7 +189,8 @@ src/kvk_team/
     adapters/
   interfaces/
     cli/                  main.py、__main__.py、composition.py（既定部品の組み立て）、
-                          team_builder.py（解析、ユースケース、出力の順に呼び出す）
+                          team_builder.py（解析、ユースケース、出力の順に呼び出す）、
+                          run_output.py（実行の時刻のフォルダへの出力）
     web/                  （#21で追加する）
 ```
 

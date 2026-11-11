@@ -1,8 +1,8 @@
 """運用者の指定を1つの不変な値として表す。
 
 運用者の指定はOptimizerとValidatorへ同じ値として渡す（要件定義書の分割案の2）。
-リーダー一覧と、回答から受け入れた遅れて出撃する隊と応援先（ADR 0035）を持つ。前回の編成などは
-要件のあるIssueで加える。
+リーダー一覧と、回答から受け入れた遅れて出撃する隊と応援先（ADR 0035）と、前回の編成（ADR 0036）を
+持つ。ほかの指定は要件のあるIssueで加える。
 
 個人名がエラーから不具合報告へ漏れないよう（ADR 0026）、エラーの文には名前を書かず、
 指定の位置（リーダー一覧の何番目か）で示す。
@@ -10,10 +10,15 @@
 
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from kvk_team.team_building.domain.member import Member
 from kvk_team.team_building.domain.team import TOP_TEAM_COUNT, team_name
+
+if TYPE_CHECKING:
+    # 編成の記録は`MemberRef`と`SupportRef`を使うため、実行時の循環importを避ける。
+    from kvk_team.team_building.domain.plan_record import PlanRecord
 
 
 class SpecificationError(ValueError):
@@ -110,11 +115,13 @@ class OperatorSpecification:
     `leaders`はリーダー一覧で、並び順が隊の番号になる（FRM-001、FRM-006）。
     上位隊の3隊を作れないため、リーダーが3人未満の一覧は入力のエラーとする（作成者の仮定A-37）。
     `late_starts`は、回答から受け入れた遅れて出撃する隊と応援先（FRM-041、FRM-042）で、
-    隊の番号の順に並べ直して持つ。
+    隊の番号の順に並べ直して持つ。`previous_plan`は`--previous`で渡した前回の編成で、この版では
+    読み込みと今回の参加者一覧との照合だけに使い、OptimizerとValidatorは使わない（ADR 0036）。
     """
 
     leaders: tuple[MemberRef, ...]
     late_starts: tuple[LateStart, ...] = ()
+    previous_plan: "PlanRecord | None" = None
 
     def __post_init__(self) -> None:
         """隊を作れないリーダー一覧と、同時に成り立たない遅れて出撃する隊を拒否する。"""
@@ -143,9 +150,7 @@ class OperatorSpecification:
     def with_late_start(self, late_start: LateStart) -> "OperatorSpecification":
         """遅れて出撃する隊を1つ加えた指定を返す。成り立たなければ`SpecificationError`を送出する。"""
 
-        return OperatorSpecification(
-            leaders=self.leaders, late_starts=(*self.late_starts, late_start)
-        )
+        return replace(self, late_starts=(*self.late_starts, late_start))
 
     def _check_leaders(self) -> None:
         """隊を作れないリーダー一覧を拒否する。"""

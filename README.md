@@ -16,7 +16,8 @@ Google OR-Tools CP-SATで自動生成するPython CLIです。
 - 24:00より前に所属メンバーが0人になる隊（休止）があれば、番号付きの質問を示して出力しない。序盤の休止には、
   回答のファイルで遅れて出撃させる隊と応援先を答えられる
 - 開始時刻が未定のメンバー（リーダーを含む）を【別枠】参加時間未定へ分離
-- ValidatorがOKを返した結果だけをMarkdown出力
+- ValidatorがOKを返した結果だけを出力する。出力のフォルダの`<実行の時刻>/`へ、編成のMarkdownと編成のJSONを
+  上書きせずに書く。共有した回の編成のJSONは、次の実行へ前回の編成（`--previous`）として渡せる
 
 同盟分散は評価しません。同盟が不明な参加者は`未設定`として入力できます。
 
@@ -44,14 +45,20 @@ python -m pip install -e ".[dev]"
 ## 使い方
 
 ```bash
-python -m kvk_team.interfaces.cli sample/参加者一覧.md チーム編成.md
+python -m kvk_team.interfaces.cli sample/参加者一覧.md tmp/preview/output
 ```
 
 パッケージのスクリプトがPATHに含まれている場合は、次でも実行できます。
 
 ```bash
-kvk-team-builder sample/参加者一覧.md チーム編成.md
+kvk-team-builder sample/参加者一覧.md tmp/preview/output
 ```
+
+2つ目の引数は出力のフォルダです。実行するたびに`<出力のフォルダ>/<実行の時刻>/`（例:
+`tmp/preview/output/20260101-205230/`）を作り、編成のMarkdown（`チーム編成.md`）と編成のJSON
+（`チーム編成.json`）を書きます。時刻は実行した計算機の現地時刻で、同じ時刻のフォルダがあれば`-2`、`-3`を
+付けて、前の出力を上書きしません（DAT-008、ADR 0036）。作ったフォルダは標準出力に表示します。以前の版のように
+`チーム編成.md`などの`.md`で終わるパスを渡すと、置き方が変わったことを示して終了コード2で終わります。
 
 同梱のリーダー一覧の例と`sample/`の名前は架空です。実際の運用では、本物のリーダー一覧を書いた
 `settings.json`を`--settings`で指定します。本物の`settings.json`、参加者一覧、出力は個人名を含むため、
@@ -59,7 +66,7 @@ kvk-team-builder sample/参加者一覧.md チーム編成.md
 （DAT-001、ADR 0029）。
 
 ```bash
-python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.md tmp/events/2026-01-01-example/チーム編成.md --settings tmp/events/2026-01-01-example/settings.json
+python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.md tmp/events/2026-01-01-example/output --settings tmp/events/2026-01-01-example/settings.json
 ```
 
 指定したファイルを読み込めない場合は、パスと理由を表示して終了コード2で終わり、出力を書きません。
@@ -72,13 +79,22 @@ python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.
 応援先を`answers.json`に書き、`--answers`で渡して再実行します。回答も個人名を含むため、イベントのフォルダに置きます。
 
 ```bash
-python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.md tmp/events/2026-01-01-example/チーム編成.md --settings tmp/events/2026-01-01-example/settings.json --answers tmp/events/2026-01-01-example/answers.json
+python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.md tmp/events/2026-01-01-example/output --settings tmp/events/2026-01-01-example/settings.json --answers tmp/events/2026-01-01-example/answers.json
+```
+
+共有した回のフォルダの`チーム編成.json`を`--previous`で渡すと、前回の編成として読み込みます。この版では
+読み込みと今回の参加者一覧との照合だけに使い、編成には使いません（前回からの移動の数（FRM-071）は今後の版で
+比べます）。そのことを標準エラーへ注意として表示し、編成を出力したときは、前回の編成にいて今回の参加者一覧
+（名前と同盟の組）にいない人がいれば、その人数だけを名前なしで表示します（番号付きの質問で止まった実行では表示しません）。いない人がいてもエラーにはしません。
+
+```bash
+python -m kvk_team.interfaces.cli tmp/events/2026-01-01-example/参加者一覧.md tmp/events/2026-01-01-example/output --settings tmp/events/2026-01-01-example/settings.json --previous tmp/events/2026-01-01-example/output/20260101-205230/チーム編成.json
 ```
 
 | 終了コード | 意味 |
 |---|---|
 | 0 | 編成を出力した |
-| 2 | 入力のエラー（ファイル、参加者一覧、チームマスタ、`settings.json`、`answers.json`）か、必須条件を満たす編成がないと確定した |
+| 2 | 入力のエラー（ファイル、出力のフォルダ、参加者一覧、チームマスタ、`settings.json`、`answers.json`、前回の編成のJSON）か、必須条件を満たす編成がないと確定した |
 | 3 | 運用者の回答が要る。番号付きの質問を表示し、出力を書かない |
 | 4 | 時間切れ。制限時間内に結果を確定できなかった。負荷の低い環境で再実行する |
 
@@ -238,12 +254,17 @@ Repository境界に置きます。
 - 必須条件の自己チェック
 - 人数不足とリーダー不在の警告
 
+上はMarkdown（`チーム編成.md`）の内容です。同じフォルダの編成のJSON（`チーム編成.json`）は、次の実行の前回の編成
+として読むためのもので、版（`schema_version`）、時差付きの実行の時刻（`created_at`。フォルダ名と同じ時刻）、隊ごとの番号、リーダー、
+出撃開始時刻、所属メンバーと、応援、待機、別枠を、メンバーを`{"name": 名前, "alliance": 同盟}`で指して持ちます。
+形は要件定義書のDAT-010を参照してください。
+
 警告は必須条件違反ではありません。特に24:00以降など、参加者総数が少なく
 第4隊以降を8人にできない時間帯は不足人数を明示します。
 
 ## 出力できない場合
 
-必須条件を満たす編成を出力できない場合は、ファイルを書かずに終了し、原因を区別して表示します。
+必須条件を満たす編成を出力できない場合は、出力のフォルダに何も書かずに終了し、原因を区別して表示します。
 終了コードは、入力のエラーと解なしが2、運用者の回答が要る場合が3、時間切れが4です。
 
 | 表示 | 終了コード | 意味 | 対処 |
@@ -256,6 +277,9 @@ Repository境界に置きます。
 | `…休止が避けられないかを確定できません。時間切れのため…` | 4 | 最適だと示せないまま休止が残り、避けられるかは未確定 | 負荷の低い環境で再実行する |
 | `リーダー一覧のN番目…が、名前と同盟の組で参加者一覧に見つかりません` / `…2人以上に当たります` | 2 | リーダー一覧のメンバーが参加者一覧で1人に決まらない。個人名がエラーから漏れないよう、名前ではなく位置で示す | `settings.json`の名前と同盟を参加者一覧に合わせる |
 | `第N隊 HH:MMへの回答（…）: …` | 2 | 回答が、ほかの指定によらず誤っている（ない隊、時刻、メンバー、第1〜3隊を遅らせる、序盤以外の問いへの回答、応援先の欠けなど） | `answers.json`を直す |
+| `前回の編成を読み込めません: …` | 2 | `--previous`のJSONの形が誤っている（未知の項目、型、版、同じメンバーが2回、同じ番号の隊など）。名前は書かず、位置と項目で示す | 共有した回のフォルダの`チーム編成.json`を、書き換えずに渡す |
+| `出力先には出力のフォルダを指定してください` | 2 | 2つ目の引数に以前の版の`.md`で終わるパスを渡した（以前の版の出力のファイルが残っていても、この表示になる） | 出力のフォルダ（例: `<イベントのフォルダ>/output`）を渡す |
+| `出力のフォルダがフォルダではありません` / `出力のフォルダを確かめられません` | 2 | 2つ目の引数が既にある（`.md`以外の）ファイルを指すか、親のフォルダを辿れない。編成の前に止める | 出力のフォルダを渡す |
 
 既定の探索は並列で実時間を上限にするため、休止を隊の間で入れ替えられる入力では、問いの対象の隊が実行ごとに
 変わることがあります。前の実行の問いへの回答が「使いませんでした」の注記になった場合は、表示された問いに
@@ -285,15 +309,15 @@ CodexまたはClaude Codeで変更をレビューする場合は`$review-kvk-cha
 ```text
 src/kvk_team/
   team_building/
-    domain/       参加者、隊と固定値、運用者の指定、所属固定の編成、チームマスタ、編成ルール、参加時間、独立検証
+    domain/       参加者、隊と固定値、運用者の指定、所属固定の編成、編成の記録、チームマスタ、編成ルール、参加時間、独立検証
     application/  編成パイプラインと境界（ports）、Optimizerの結果の型
     adapters/
       input/          Markdown入力解析
       optimization/   所属固定のCP-SAT
       output/         隊、出撃、待機、別枠、自己チェックのMarkdown出力
-      persistence/    JSONチームマスタ、運用者の指定（settings.json）とRepository
+      persistence/    JSONチームマスタ、運用者の指定（settings.json）、回答、編成のJSONとRepository
   interfaces/
-    cli/          CLIと既定部品の組み立て
+    cli/          CLI、既定部品の組み立て、実行の時刻のフォルダへの出力
 tests/          pytestテスト
 sample/         実行可能な参加者一覧
 docs/           設計文書、ブラウザ用補助ツールの要件定義書
