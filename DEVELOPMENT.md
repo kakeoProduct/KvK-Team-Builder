@@ -189,7 +189,7 @@ Git保護のHookと`.env`の拒否を迂回できる`browser_run_code_unsafe`（
 | `tests/test_preview_output.py` | 生成結果の要約、差分、前回出力の退避 |
 | `tests/test_agent_hooks.py` | Git保護、読み取り専用の強制、ブラウザの出力先の制限、共有記憶のAgent Hook、迂回するToolの`permissions.deny` |
 | `tests/test_web_tool_checks.py` | Node.jsの版の固定、開発依存の集合と厳密な版、lockfileとの一致、CIとDev Containerの手順、`tools/check_web.py`の失敗時の案内 |
-| `tests/test_browser_verification.py` | Playwright MCPの版の固定、Claude CodeとCodexの設定の一致、出力先と要求先の設定、手順の値と設定の一致、`web/`に外部のURLがないこと、拒否するToolが固定した版にあること、`npm ci`がScriptを実行しないこと、Dev Containerのブラウザとフォント |
+| `tests/test_browser_verification.py` | Playwright MCPの版の固定、Claude CodeとCodexの設定の一致、出力先と要求先の設定、手順の値と設定の一致、`web/`に外部のURLがないこと、拒否するToolが固定した版にあること、`npm ci`がScriptを実行しないこと、Dev Containerのブラウザとフォント、レビュー担当へ渡すブラウザの確認結果と画面写真の手順 |
 | `tests/web/*.test.js` | `web/`の実物のHTMLをjsdomで操作し、集結タイムライン計算の計算規則（`siege-timeline.md`の性質C1〜C3、C8〜C12）、保存、周期ウェーブタイマーの計測、自動取り込み、進行表示、保存できない環境での動作（COM-041）、カウントダウン表と共有する速度ペットのボーナスを検査 |
 
 CP-SATを含むため全テストには数十秒かかります。変更中は対象テストを実行しても
@@ -306,7 +306,9 @@ Bashでは`python tools/review_query.py`の呼び出しだけを通します。�
 Gitの履歴、`tests/`の下のpytestのテストを扱い、外部のコマンドへOptionとして渡る値を受け付けません
 （ADR 0033）。Review Agentは`python tools/check.py`、`tests/web/`のJavaScriptのテスト、
 `tools/preview_output.py`を実行できません。`$review-kvk-change`では、主エージェントがこれらを実行し、
-結果と出力のパスを担当へ渡します。
+結果と出力のパスを担当へ渡します。ブラウザのToolも使えないため、`web/`の変更では、主エージェントが
+Playwright MCPで確かめた結果と`tmp/playwright-mcp/`の画面写真の絶対パスも渡し、確かめていない経路は
+未実施と伝えます。手元のブラウザや実機で代えた経路の伝え方は、`$review-kvk-change`の委譲の節に従います。
 `.claude/settings.json`の登録の変更は新しいSessionから、登録済みのScriptの本体の変更は次の呼び出しから
 有効になります。
 

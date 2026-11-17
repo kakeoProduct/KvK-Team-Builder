@@ -1802,7 +1802,8 @@ def test_hidden_words_rule_covers_every_outward_text() -> None:
     assert (
         _compact(
             "本物の参加者一覧と、それから作った出力も、同じく書きません。確認資料に載せる出力は、"
-            "`sample/`か架空の参加者一覧を、`--team-master`を付けずに同梱の例で編成して作ります"
+            "`sample/`か架空の参加者一覧を、`--team-master`と`--settings`を付けずに"
+            "同梱の例（架空のリーダー一覧を含む）で編成して作ります"
         )
         in agents_policy
     )
@@ -2067,7 +2068,10 @@ def test_operator_settings_are_read_and_checked_as_examples() -> None:
     )
     agents_policy = _compact((PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8"))
     assert (
-        _compact("`--settings`も付けず、同梱の架空のリーダー一覧を使います")
+        _compact(
+            "`--team-master`と`--settings`を付けずに"
+            "同梱の例（架空のリーダー一覧を含む）で編成して作ります"
+        )
         in agents_policy
     )
     template = _compact(
