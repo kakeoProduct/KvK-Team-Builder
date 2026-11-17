@@ -29,12 +29,19 @@
 | 上位隊 | `is_top_team`、`TOP_TEAM_COUNT` | 第1〜3隊。リーダーを含めて8人固定（`TOP_TEAM_SIZE`。別枠のリーダーの隊は7人）で、リーダー以外は全時間帯に参加する |
 | リーダー | `TeamMembership.leader` | 隊を率いるメンバー。リーダー一覧の順が隊の番号になる |
 | 所属 | `TeamMembership.members` | メンバーが属する隊。時間帯をまたいで変わらない |
-| 出撃 | `Sortie` | ある時間帯に隊として出撃するメンバー。所属メンバーのうち参加している人 |
+| 出撃 | `Sortie` | ある時間帯に隊として出撃するメンバー。所属メンバーのうち参加している人と、応援に来た人 |
+| 出撃人数 | `Sortie.head_count` | 所属メンバーのうち参加している人と、応援に来た人の合計 |
+| 出撃開始時刻 | `TeamMembership.start_minutes` | 隊が出撃を始める時刻。遅れて出撃する隊は戦闘開始より後になる |
+| 遅れて出撃する隊 | `LateStart` | 運用者が回答で選んだ、出撃開始時刻と出撃開始前の応援先を持つ隊（FRM-041） |
+| 応援 | `Support`（運用者の指定は`SupportRef`） | 遅れて出撃する隊の所属メンバーが、出撃開始前にほかの隊で出撃すること（FRM-042） |
+| 序盤 | `is_opening`、`OPENING_MINUTES` | 戦闘開始からの1時間（FRM-040） |
 | 休止 | `ValidationCode.REST` | 所属メンバーの参加が0人になる時間帯。延長境界時刻より前は下限の不足 |
 | 延長境界時刻 | `EXTENSION_BOUNDARY_MINUTES` | 24:00。人数不足を延長保留として扱い始める時刻 |
 | 待機 | `TeamPlan.waiting` | 人数の上限のため、どの隊にも所属しないメンバー（FRM-033） |
 | 別枠 | `TeamPlan.undecided` | 参加時間未定のため、どの隊にも入れないメンバー（FRM-060） |
-| 運用者の指定 | `OperatorSpecification` | 1回の編成で運用者が渡す指定の不変な値。現在はリーダー一覧（`MemberRef`の組） |
+| 回答 | `Answer` | 番号付きの質問の対象の（隊、時間帯）への運用者の答え。遅れて出撃する隊を持つ（DAT-009） |
+| 番号付きの質問 | `ShortfallQuestion` | 下限の不足を、隊と序盤かどうかでまとめて運用者へ示す問い（FRM-075） |
+| 運用者の指定 | `OperatorSpecification` | 1回の編成で運用者が渡す指定の不変な値。現在はリーダー一覧（`MemberRef`の組）と、回答から受け入れた遅れて出撃する隊（`late_starts`） |
 | チームマスタ | `TeamMaster` | 戦闘時間と出撃人数の上限を持つ常設の既定値 |
 | 編成候補 | `TeamPlan` | 隊ごとの所属、待機、別枠を持つ、検証前の候補 |
 | 検証済み編成 | `ValidatedTeamPlan` | 必須条件を満たすことを確認した出力可能な編成と、その検証結果（警告、出撃の指標、待機、別枠）、最適性。必須条件エラーを含む検証結果からは生成できない |
@@ -42,9 +49,9 @@
 | 警告 | `Warning` | 編成を出力しながら運用者へ知らせる不足 |
 | 目的関数 | `Objective` | 複数の有効な編成から望ましいものを選ぶ優先度 |
 
-上の表は所属固定のモデル（ADR 0034）の用語です。応援、出撃開始時刻、代理リーダー（当面置かない、
-FRM-003）などの目標仕様の用語は、要件定義書の用語表にあり、実装Issueで導入するときにこの表へ
-追加します。以前の固定集結主（`RallyLeader`）、代理集結主（`SubstituteLeader`）、時間帯ごとに移れる
+上の表は所属固定のモデル（ADR 0034）と、遅れて出撃する隊と応援（ADR 0035）の用語です。代理リーダー
+（当面置かない、FRM-003）などの目標仕様の用語は、要件定義書の用語表にあり、実装Issueで導入するときに
+この表へ追加します。以前の固定集結主（`RallyLeader`）、代理集結主（`SubstituteLeader`）、時間帯ごとに移れる
 `DynamicTeamPlan`、開始時刻未確定の`Standby`は使いません。以前の`Standby`は別枠に当たり、
 待機とは別の概念です。
 
@@ -80,10 +87,10 @@ FRM-003）などの目標仕様の用語は、要件定義書の用語表にあ�
 
 ### 値オブジェクトとドメインポリシー
 
-- `Tier`, `Availability`, `TimeSlot`, `MemberRef`
+- `Tier`, `Availability`, `TimeSlot`, `MemberRef`, `SupportRef`, `LateStart`, `Answer`
 - `EventTimeSettings`
 - 利用者が決めた固定値: `TOP_TEAM_COUNT`, `TOP_TEAM_SIZE`, `SORTIE_FLOOR`, `EXTENSION_BOUNDARY_MINUTES`,
-  `SLOT_MINUTES`（`domain/team.py`。ADR 0034）
+  `SLOT_MINUTES`（`domain/team.py`。ADR 0034）、`OPENING_MINUTES`, `FIRST_SUPPORTED_TEAM`（ADR 0035）
 - 現行の規則: 戦力関係`STRICTLY_STRONGER_PAIRS`, `AT_LEAST_AS_STRONG_PAIRS`（`domain/team.py`）。固定値ではなく、
   分割案の3でFRM-027へ置き換えるまで維持する
 - `TeamMaster`, `KvKRules`, `OperatorSpecification`: 1イベントの編成ポリシーと運用者の指定を構成する不変値
@@ -105,7 +112,8 @@ Repositoryを作らず、永続化の整合単位が明確なものにだけRepo
 
 - 参加可能時間の解決と時間枠への分割
 - リーダー一覧の参加者への解決（`resolve_leaders`）
-- 所属と参加時間からの出撃の計算（`sorties`）
+- ほかの指定によらない回答の誤りの確認（`check_answers`）
+- 所属と参加時間、応援からの出撃の計算（`sorties`）
 - 編成の必須条件検証と警告生成
 - ソルバーへ渡す編成ポリシーの表現
 
@@ -121,10 +129,11 @@ Markdown、JSON、ファイルパス、OR-Toolsを必要としない形を目標
 
 ### アプリケーション
 
-ユースケース`BuildTeamPlan`はドメイン型の`Member`一覧と`OperatorSpecification`を受け取り、
-Optimizer境界とValidator境界を調整して`ValidatedTeamPlan`を返します。リーダーの解決の失敗
-（`SpecificationError`）、解なしの証明（`NoValidPlanError`）、下限の不足（`LowerBoundShortfallError`、
-最適性を示せなければ`ShortfallUndeterminedError`）、再試行の上限（`BuildError`）を区別しますが、
+ユースケース`BuildTeamPlan`はドメイン型の`Member`一覧と`OperatorSpecification`と回答（`Answer`）を受け取り、
+回答を確かめる手順（作成者の仮定A-41）に沿ってOptimizer境界とValidator境界を調整し、`ValidatedTeamPlan`を
+返します。リーダーの解決の失敗と回答の誤り（`SpecificationError`）、解なしの証明（`NoValidPlanError`）、
+下限の不足（番号付きの質問を持つ`LowerBoundShortfallError`、最適性を示せなければ時間切れの
+`ShortfallUndeterminedError`）、再試行の上限（`BuildError`）を区別しますが、
 Markdownの解析・出力や、編成人数、VC条件そのものは決めません。チームマスタと運用者の指定は、
 呼び出し側がRepositoryから読み込んで渡します。
 

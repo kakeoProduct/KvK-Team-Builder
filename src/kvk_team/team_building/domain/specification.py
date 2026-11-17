@@ -1,7 +1,7 @@
 """運用者の指定を1つの不変な値として表す。
 
 運用者の指定はOptimizerとValidatorへ同じ値として渡す（要件定義書の分割案の2）。
-このIssueではリーダー一覧だけを持ち、応援先、遅れて出撃する隊、前回の編成などは
+リーダー一覧と、回答から受け入れた遅れて出撃する隊と応援先（ADR 0035）を持つ。前回の編成などは
 要件のあるIssueで加える。
 
 個人名がエラーから不具合報告へ漏れないよう（ADR 0026）、エラーの文には名前を書かず、
@@ -43,16 +43,111 @@ def leader_position(number: int) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class SupportRef:
+    """遅れて出撃する隊のメンバーが、出撃開始前の1つの時間帯に応援する隊（FRM-042）。
+
+    応援先はメンバーごと、時間帯ごとに運用者が選ぶ。応援を指定したメンバーは、その遅れて出撃する
+    隊に所属する（作成者の仮定A-16）。
+    """
+
+    member: MemberRef
+    slot_start_minutes: int
+    team: int
+
+    def sort_key(self) -> tuple[int, str, str, int]:
+        """書いた順によらない並びの鍵を返す（FRM-090の性質(5)）。"""
+
+        return (
+            self.slot_start_minutes,
+            self.member.name,
+            self.member.alliance,
+            self.team,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LateStart:
+    """遅れて出撃する隊と出撃開始時刻、出撃開始前の応援先（FRM-041、FRM-042）。
+
+    `supports`は書いた順によらない並びに直して持つ。1人の1つの時間帯に応援先は1つだけとする。
+    """
+
+    team: int
+    start_minutes: int
+    supports: tuple[SupportRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        """応援を並べ直し、同じメンバーの同じ時間帯の重複を拒否する。"""
+
+        ordered = tuple(sorted(self.supports, key=SupportRef.sort_key))
+        object.__setattr__(self, "supports", ordered)
+        keys = [(item.member, item.slot_start_minutes) for item in ordered]
+        if len(set(keys)) != len(keys):
+            raise SpecificationError(
+                f"{team_name(self.team)}の応援に、同じメンバーの同じ時間帯が2つあります"
+            )
+
+    def sort_key(self) -> tuple[object, ...]:
+        """書いた順によらない並びの鍵を返す。"""
+
+        return (
+            self.team,
+            self.start_minutes,
+            tuple(item.sort_key() for item in self.supports),
+        )
+
+    @property
+    def supporters(self) -> frozenset[MemberRef]:
+        """応援するメンバーを返す。"""
+
+        return frozenset(item.member for item in self.supports)
+
+
+@dataclass(frozen=True, slots=True)
 class OperatorSpecification:
     """1回の編成で運用者が渡した指定。
 
     `leaders`はリーダー一覧で、並び順が隊の番号になる（FRM-001、FRM-006）。
     上位隊の3隊を作れないため、リーダーが3人未満の一覧は入力のエラーとする（作成者の仮定A-37）。
+    `late_starts`は、回答から受け入れた遅れて出撃する隊と応援先（FRM-041、FRM-042）で、
+    隊の番号の順に並べ直して持つ。
     """
 
     leaders: tuple[MemberRef, ...]
+    late_starts: tuple[LateStart, ...] = ()
 
     def __post_init__(self) -> None:
+        """隊を作れないリーダー一覧と、同時に成り立たない遅れて出撃する隊を拒否する。"""
+
+        self._check_leaders()
+        ordered = tuple(sorted(self.late_starts, key=LateStart.sort_key))
+        object.__setattr__(self, "late_starts", ordered)
+        teams = [late.team for late in ordered]
+        repeated = sorted({team for team in teams if teams.count(team) > 1})
+        if repeated:
+            raise SpecificationError(
+                "、".join(team_name(team) for team in repeated)
+                + "の出撃開始時刻が2つあります"
+            )
+        supporters = [ref for late in ordered for ref in late.supporters]
+        if len(set(supporters)) != len(supporters):
+            raise SpecificationError(
+                "同じメンバーが2つの遅れて出撃する隊から応援します"
+            )
+
+    def late_start(self, team: int) -> LateStart | None:
+        """隊の遅れて出撃する指定を返す。なければNoneを返す。"""
+
+        return next((late for late in self.late_starts if late.team == team), None)
+
+    def with_late_start(self, late_start: LateStart) -> "OperatorSpecification":
+        """遅れて出撃する隊を1つ加えた指定を返す。成り立たなければ`SpecificationError`を送出する。"""
+
+        return OperatorSpecification(
+            leaders=self.leaders, late_starts=(*self.late_starts, late_start)
+        )
+
+    def _check_leaders(self) -> None:
         """隊を作れないリーダー一覧を拒否する。"""
 
         if len(self.leaders) < TOP_TEAM_COUNT:

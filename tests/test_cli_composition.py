@@ -19,6 +19,9 @@ from kvk_team.interfaces.cli.composition import (
     default_rules,
     default_specification,
 )
+from kvk_team.team_building.adapters.optimization.errors import (
+    OptimizationTimeoutError,
+)
 from kvk_team.team_building.adapters.persistence.json_operator_settings_repository import (  # noqa: E501
     default_settings_path,
 )
@@ -31,7 +34,11 @@ from kvk_team.team_building.application.build_team_plan import (
     BuildError,
     BuildTeamPlan,
     LowerBoundShortfallError,
+    NoValidPlanError,
+    ShortfallQuestion,
+    ShortfallUndeterminedError,
 )
+from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.plan import TimeSlot
 from kvk_team.team_building.domain.rules import KvKRules
 from kvk_team.team_building.domain.specification import (
@@ -68,12 +75,19 @@ class RecordingBuilder:
 
     rules: list[KvKRules] = []
     specifications: list[OperatorSpecification] = []
+    answers: list[tuple[Answer, ...]] = []
 
     def __init__(self, rules: KvKRules) -> None:
         RecordingBuilder.rules.append(rules)
 
-    def build(self, markdown: str, specification: OperatorSpecification) -> str:
+    def build(
+        self,
+        markdown: str,
+        specification: OperatorSpecification,
+        answers: tuple[Answer, ...] = (),
+    ) -> str:
         RecordingBuilder.specifications.append(specification)
+        RecordingBuilder.answers.append(tuple(answers))
         return "出力\n"
 
 
@@ -81,6 +95,7 @@ class RecordingBuilder:
 def recording_builder(monkeypatch: pytest.MonkeyPatch) -> type[RecordingBuilder]:
     RecordingBuilder.rules = []
     RecordingBuilder.specifications = []
+    RecordingBuilder.answers = []
     monkeypatch.setattr(cli_main, "create_team_builder", RecordingBuilder)
     return RecordingBuilder
 
@@ -310,44 +325,141 @@ def test_package_data_points_to_existing_files() -> None:
     assert default_settings_path().resolve() in resolved
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        BuildError("3回の再配置後も検証NGです: 人数NG"),
-        LowerBoundShortfallError(
-            [
-                ValidationIssue(
-                    ValidationCode.REST,
-                    "第4隊は所属メンバーが参加しておらず休止になります",
-                    4,
-                    TimeSlot(21 * 60, 21 * 60 + 30),
-                )
-            ]
-        ),
-    ],
-)
-def test_cli_reports_build_error_with_exit_code_2_and_writes_no_output(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    error: BuildError,
-) -> None:
-    """編成を出力できない場合は、出力ファイルを書かずに理由を示して終了コード2で終える。"""
-
-    output_path = tmp_path / "出力.md"
-
+def _fail_with(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
     class FailingBuilder:
         def __init__(self, rules: KvKRules) -> None:
             pass
 
-        def build(self, markdown: str, specification: OperatorSpecification) -> str:
+        def build(
+            self,
+            markdown: str,
+            specification: OperatorSpecification,
+            answers: tuple[Answer, ...] = (),
+        ) -> str:
             raise error
 
     monkeypatch.setattr(cli_main, "create_team_builder", FailingBuilder)
 
+
+SHORTFALL = LowerBoundShortfallError(
+    [
+        ValidationIssue(
+            ValidationCode.REST,
+            "第4隊は所属メンバーが参加しておらず休止になります",
+            4,
+            TimeSlot(21 * 60, 21 * 60 + 30),
+        )
+    ],
+    [ShortfallQuestion(1, 4, (TimeSlot(21 * 60, 21 * 60 + 30),), opening=True)],
+    ["第5隊 21:00への回答（第6隊を22:00から出撃）は使いませんでした"],
+)
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (BuildError("3回の再配置後も検証NGです: 人数NG"), 2),
+        (NoValidPlanError("上位隊の人数を満たす編成は存在しません"), 2),
+        (OptimizationTimeoutError("時間切れのため、編成の有無は未確定です"), 4),
+        (ShortfallUndeterminedError("時間切れのため、確定できません"), 4),
+    ],
+)
+def test_cli_reports_errors_with_exit_code_and_writes_no_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+    code: int,
+) -> None:
+    """出力できない場合は出力を書かずに理由を示し、入力のエラーと解なしは2、時間切れは4で終える。"""
+
+    output_path = tmp_path / "出力.md"
+    _fail_with(monkeypatch, error)
+
     with pytest.raises(SystemExit) as exit_info:
         cli_main.main([str(_input(tmp_path)), str(output_path)])
 
-    assert exit_info.value.code == 2
+    assert exit_info.value.code == code
     assert f"エラー: {error}" in capsys.readouterr().err
+    assert not output_path.exists()
+
+
+def test_cli_shows_numbered_questions_with_exit_code_3(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """運用者の判断が要る場合は、番号付きの質問と注記を示し、出力を書かずに3で終える（FRM-075）。"""
+
+    output_path = tmp_path / "出力.md"
+    _fail_with(monkeypatch, SHORTFALL)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.main([str(_input(tmp_path)), str(output_path)])
+
+    error = capsys.readouterr().err
+    assert exit_info.value.code == 3
+    assert "問1: 第4隊 21:00（序盤）" in error
+    assert "注記: 第5隊 21:00への回答" in error
+    assert not output_path.exists()
+
+
+def _write_answers(path: Path, raw: object) -> Path:
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_cli_passes_answers_file_to_builder(
+    tmp_path: Path, recording_builder: type[RecordingBuilder]
+) -> None:
+    """--answersで渡した回答を読み、編成へ渡す（DAT-009）。"""
+
+    answers_path = _write_answers(
+        tmp_path / "answers.json",
+        {
+            "answers": [
+                {
+                    "target": {"team": 7, "time": "21:00"},
+                    "late_start": {"team": 10, "start": "22:00"},
+                }
+            ]
+        },
+    )
+    arguments = [str(_input(tmp_path)), str(tmp_path / "出力.md")]
+
+    exit_code = cli_main.main([*arguments, "--answers", str(answers_path)])
+
+    assert exit_code == 0
+    assert len(recording_builder.answers[-1]) == 1
+    assert recording_builder.answers[-1][0].late_start.team == 10
+
+
+def test_cli_without_answers_passes_no_answers(
+    tmp_path: Path, recording_builder: type[RecordingBuilder]
+) -> None:
+    """--answersを省略すれば、回答なしで編成する。"""
+
+    cli_main.main([str(_input(tmp_path)), str(tmp_path / "出力.md")])
+
+    assert recording_builder.answers[-1] == ()
+
+
+def test_cli_reports_answers_load_error_with_exit_code_2(
+    tmp_path: Path,
+    recording_builder: type[RecordingBuilder],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """回答のファイルを読めなければ、パスを示して終了コード2で終える。"""
+
+    answers_path = _write_answers(
+        tmp_path / "answers.json", {"answers": [{"number": 1}]}
+    )
+    output_path = tmp_path / "出力.md"
+    arguments = [str(_input(tmp_path)), str(output_path)]
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli_main.main([*arguments, "--answers", str(answers_path)])
+
+    assert exit_info.value.code == 2
+    assert "answers.json" in capsys.readouterr().err
     assert not output_path.exists()

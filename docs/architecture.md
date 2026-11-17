@@ -70,18 +70,22 @@ tools/               PythonとFEに共通の品質ゲート
 ```text
 team_master.json ─→ JsonTeamMasterRepository ─────────→ TeamMaster（KvKRules）
 settings.json ───→ JsonOperatorSettingsRepository ───→ OperatorSpecification
+answers.json ────→ JsonAnswersRepository ────────────→ tuple[Answer]
                                                               ↓
 参加者一覧.md ─→ MarkdownMemberParser ─→ list[Member]         ↓
                                 ↓                             ↓
-                     BuildTeamPlan: resolve_leaders（1人に決まらなければSpecificationError）
+                     BuildTeamPlan: resolve_leaders、check_answers
+                     （1人に決まらない、ほかの指定によらない回答の誤り → SpecificationError）
+                                ↓
+              回答なしの判定に使う編成 → 回答を順に1つずつ確かめる（late_startsへ加える）
                                 ↓
                       MembershipOptimizer（内部でAvailabilityResolver）
               ↙ SolvedPlan（TeamPlan、最適性）   ↘ ProvenInfeasible（理由）→ NoValidPlanError
                                 ↓                   時間切れ → OptimizationTimeoutError
                        TeamPlanValidator（参加者一覧と指定から計算し直す）
-         ↓ 必須条件OK    ↘ 休止だけ: 最適ならLowerBoundShortfallError、最適と示せなければ
-                            ShortfallUndeterminedError。ほかのNGは再試行（上限でBuildError）
-   ValidatedTeamPlan（編成＋警告・出撃の指標・待機・別枠・最適性）
+         ↓ 必須条件OK    ↘ 休止だけ: 最適ならLowerBoundShortfallError（番号付きの質問）、
+                            最適と示せなければShortfallUndeterminedError。ほかのNGは再試行（上限でBuildError）
+   ValidatedTeamPlan（編成＋警告・出撃の指標・待機・別枠・最適性・注記）
                                 ↓
                      TeamPlanMarkdownExporter
                                 ↓
@@ -102,6 +106,15 @@ Validatorが必須条件を満たすと判定した編成だけが`ValidatedTeam
 `ValidatedTeamPlan`が型で保証するのは「検証結果に必須条件エラーがない」ことだけで、その検証結果が
 同じ編成のものであることは、`BuildTeamPlan`が生成する前提で守ります。ほかの経路で生成しません。
 
+運用者の回答（遅れて出撃する隊と応援先）は、`BuildTeamPlan`が次の順に確かめます（作成者の仮定A-41、ADR 0035）。
+ほかの指定によらない誤りは`domain/answers.py`の`check_answers`で最適化の前に入力のエラーにします。次に回答なしの
+判定に使う編成を作り、回答を対象の隊の番号、時刻、指定の順に1つずつ確かめます。対象が不足でなければ使わなかったと
+注記し、そうでなければ指定を加えて、対象の休止をなくし、ほかの（隊、時間帯）に休止を新しく生まない編成を
+Optimizerに探させます（`optimize`の`allowed_shortfalls`）。見つかれば受け入れ、ないと証明されれば受け入れなかったと
+注記します。見つかった編成に休止が残り、最適性を示せなければ時間切れのエラーにします（FRM-090の性質(6)）。
+受け入れた指定の編成に休止が残れば、隊と序盤かどうかでまとめた番号付きの問い（`ShortfallQuestion`）を
+持つ`LowerBoundShortfallError`を送出します。アプリは回答を覚えず、運用者が同じファイルへ足していきます。
+
 ## 設定の永続化境界
 
 設定は、Repositoryで管理する常設の既定値（チームマスタ）と、イベントごとに運用者が渡す指定
@@ -115,7 +128,13 @@ TeamMasterRepository (Protocol)
     └── JsonTeamMasterRepository        team_master.json（--team-master、省略時は同梱）
 OperatorSpecificationRepository (Protocol)
     └── JsonOperatorSettingsRepository  settings.json（--settings、省略時は同梱の架空の例）
+AnswersRepository (Protocol)
+    └── JsonAnswersRepository           answers.json（--answers、省略時は回答なし）
 ```
+
+運用者の回答（DAT-009）は、番号付きの質問への答えで、イベントのフォルダ（Git管理外）の`answers.json`に置きます。
+編成の前に決める指定（`settings.json`）と分けます（ADR 0035）。Repositoryは形式の変換だけを行い、回答の妥当性は
+ドメインとアプリケーションが確かめます。
 
 チームマスタ（`schema_version` 2）は、イベント開始と終了と、第4隊以降の出撃人数の上限
 （`member_cap`）だけを持ち、名前を含みません。以前の形（`schema_version` 1。隊ごとの集結主、
@@ -145,16 +164,21 @@ JSON固有の辞書はRepository内で`TeamMaster`、`EventTimeSettings`、`Oper
 ### 運用者の指定（OperatorSpecification）
 
 1回の編成で運用者が渡す指定を1つの不変な値にまとめ、OptimizerとValidatorへ同じ値を渡します。
-現在はリーダー一覧（`MemberRef`の組。名前と同盟）だけを持ち、並び順が隊の番号です。応援先、遅れて
-出撃する隊、前回の編成などは、要件のあるIssueで加えます。リーダーは`resolve_leaders`で参加者一覧の
-メンバーへ解決し、1人に決まらなければ`SpecificationError`（入力のエラー）にします。
+リーダー一覧（`MemberRef`の組。名前と同盟）を持ち、並び順が隊の番号です。回答から受け入れた遅れて出撃する隊
+（`LateStart`。隊、出撃開始時刻、応援`SupportRef`の一覧）を`late_starts`に持ちます（ADR 0035）。前回の編成などは、
+要件のあるIssueで加えます。リーダーは`resolve_leaders`で参加者一覧のメンバーへ解決し、1人に決まらなければ
+`SpecificationError`（入力のエラー）にします。回答（`Answer`）は、問いの対象の（隊、時間帯）と`LateStart`を持ちます。
 
 ### 所属固定の編成（TeamPlan）
 
 隊ごとの`TeamMembership`（番号、リーダー、所属メンバー）、待機、別枠を保持します。所属は時間帯を
 またいで変わらず、同じメンバーが時間帯ごとに別の隊へ移ることを表現できません。時間帯ごとの出撃
-（`Sortie`）は`sorties`が所属と参加時間から計算します。参加時間未定のリーダーは別枠に置き、
+（`Sortie`）は`sorties`が所属と参加時間、応援から計算します。参加時間未定のリーダーは別枠に置き、
 `TeamMembership.members`へ含めません。
+
+遅れて出撃する隊は`TeamMembership.start_minutes`に出撃開始時刻を持ち、出撃開始前の時間帯は所属メンバーを出撃させ
+ません。応援（`Support`。メンバー、時間帯、応援先）は`TeamPlan.supports`に持ち、応援先の出撃（`Sortie.supporters`）に
+数えます。出撃人数（`Sortie.head_count`）は所属メンバーと応援の合計で、休止は所属メンバーだけで判定します。
 
 ## 時間の解決
 
@@ -186,8 +210,16 @@ JSON固有の辞書はRepository内で`TeamMaster`、`EventTimeSettings`、`Oper
 5. 第4隊以降の出撃人数は`member_cap`以下
 6. 全時間帯で、第1〜3隊のTier戦力の合計が`第1隊 > 第2隊 >= 第3隊`
 
+7. 遅れて出撃する隊の出撃開始前の時間帯は、人数、休止、上限の対象にしない
+8. 応援するメンバーはその遅れて出撃する隊に所属し（作成者の仮定A-16）、応援先のない出撃開始前の参加者は
+   遅れて出撃する隊に所属しない（FRM-047）
+9. 応援先の出撃人数（所属メンバーと応援の合計）は`member_cap`以下で、応援を受ける時間帯に所属メンバーが1人以上
+   参加する（FRM-042、FRM-048）
+10. `allowed_shortfalls`を渡した場合は、延長境界時刻より前の休止をその（隊、時間帯）だけに限る（回答の受け入れの確認）
+
 最適化の前に、第1〜3隊のリーダーのVCと、全時間帯に参加するVC可能なメンバーの人数を確かめ、
-足りなければ理由を示して`ProvenInfeasible`を返します。
+足りなければ理由を示して`ProvenInfeasible`を返します。応援先がほかの遅れて出撃する隊の出撃開始前に当たる場合も、
+理由を示して`ProvenInfeasible`を返します。
 
 ### 目的関数
 
@@ -216,15 +248,22 @@ Optimizerとは独立して、参加者一覧と運用者の指定から次を�
 - 第4隊以降の出撃人数の上限
 - `第1隊 > 第2隊 >= 第3隊`
 - 延長境界時刻より前の休止（下限の不足。`ValidationReport.shortfalls`）
-- 出撃人数、戦力、VC人数、在席のリーダー
+- 出撃開始時刻と応援が運用者の指定と一致すること（`SPECIFICATION_MISMATCH`）
+- 遅れて出撃する隊が第4隊以降で、出撃開始時刻が戦闘開始より後の区切りにあること（`LATE_START`）
+- 応援が、遅れて出撃する隊の出撃開始前の所属メンバーによるもので、その時間帯に参加し、応援先が第5隊以降の
+  ほかの隊で出撃開始以降かつ休止中でないこと。出撃開始前に参加する所属メンバーに時間帯ごとの応援先があること
+  （`SUPPORT`）。指定と一致していても条件を満たさない編成を拒否する（FRM-047）
+- 出撃人数（応援を含む）、戦力、VC人数、在席のリーダー。出撃開始前の時間帯は人数、休止、リーダー不在を判定しない
 
 第4隊以降の8人未満、リーダー不在（上位隊の7人を含む。FRM-029）、延長境界時刻以降の休止は警告です。
 必須条件エラーと警告を分離することで、成立した編成を出力しつつ運用上のリスクを残します。
 
 ## 出力
 
-Exporterは隊ごとに「第N隊 リーダー: 名前」（別枠のリーダーの隊は「リーダー不在」）の見出しと所属
-メンバーを出力し、待機、【別枠】参加時間未定、時間帯別の出撃、自己チェックと警告を続けます。
+Exporterは隊ごとに「第N隊 リーダー: 名前」（別枠のリーダーの隊は「リーダー不在」）の見出し、遅れて出撃する隊の
+出撃開始時刻、所属メンバーを出力し、応援（ある場合）、待機、【別枠】参加時間未定、時間帯別の出撃、注記（ある場合）、
+自己チェックと警告を続けます。番号付きの質問の文は`adapters/output/shortfall_question_text.py`が作り、CLIが
+標準エラーへ出します。
 チャット共有用テキスト（OUT-001〜OUT-014）への置き換えは実装Issueの6で行います。
 
 ## Web UI境界とデザイン
@@ -275,15 +314,19 @@ Playwright MCPで実際のブラウザを操作して確かめます。品質ゲ
 - JSONマスタの不備: `TeamMasterLoadError`
 - 運用者の指定の不備: `OperatorSettingsLoadError`（ファイル）、`SpecificationError`（リーダーが参加者一覧で
   1人に決まらないなど）
+- 運用者の回答の不備: `AnswersLoadError`（ファイル）、`SpecificationError`（ほかの指定によらない回答の誤り）
 - 最適化の失敗: `OptimizationError`
   - 解の有無を確定する前に探索の制限へ達した: `OptimizationTimeoutError`
 - 必須条件を満たす編成を出力できない: `BuildError`
   - CP-SATが解の不存在を証明した（`ProvenInfeasible`の理由を示す）: `NoValidPlanError`
-  - 最適な編成でも延長境界時刻より前の休止が残る（隊と時刻を示す）: `LowerBoundShortfallError`
+  - 最適な編成でも延長境界時刻より前の休止が残る（番号付きの質問と注記を持つ）: `LowerBoundShortfallError`
   - 最適だと示せないまま休止が残る（時間切れ）: `ShortfallUndeterminedError`
+- 時間切れの共通の型: `SearchTimeoutError`（`application/ports.py`）。`OptimizationTimeoutError`と
+  `ShortfallUndeterminedError`が継承する
 
 Optimizerは時間切れ（`UNKNOWN`）を解の不存在（`INFEASIBLE`）として報告しません。解の不存在は
-`ProvenInfeasible`として返し、例外にしません（ADR 0034）。境界での捕捉と終了コード2は共通です。
+`ProvenInfeasible`として返し、例外にしません（ADR 0034）。CLIは、`LowerBoundShortfallError`を番号付きの質問として
+終了コード3、`SearchTimeoutError`を終了コード4、ほかの入力のエラーと`BuildError`を終了コード2で終えます（ADR 0035）。
 
 CP-SATの探索は既定で実時間を上限にし、8 workerで並列実行するため、実行環境の速さと
 負荷で結果が変わります。再現性が必要な場合は`KvKRules.maximum_deterministic_time`で

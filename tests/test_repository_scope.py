@@ -12,6 +12,10 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
+from kvk_team.team_building.adapters.persistence.json_answers_repository import (
+    parse_answers,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # 公開Repositoryで検索に当たらないよう伏せる語（ADR 0026）。この検査自身が当たらないよう、
@@ -410,7 +414,12 @@ def test_data_format_examples_follow_their_definitions() -> None:
     assert kinds.count("csv") >= 2 and kinds.count("json") >= 1, kinds
 
     for name, kind, body in blocks:
+        if kind == "json" and name == "answers.json":
+            # 回答の例は、DAT-009の形をRepositoryで実際に読めることを確かめる
+            assert parse_answers(json.loads(body)), name
+            continue
         if kind == "json":
+            assert name == "settings.json", name
             settings = json.loads(body)
             for key in time_columns & settings.keys():
                 assert datetime.fromisoformat(settings[key]).tzinfo is not None, key

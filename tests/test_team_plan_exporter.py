@@ -5,7 +5,12 @@ from kvk_team.team_building.adapters.output.team_plan_markdown_exporter import (
     TeamPlanMarkdownExporter,
 )
 from kvk_team.team_building.domain.member import Member, Tier
-from kvk_team.team_building.domain.plan import TeamMembership, TeamPlan, TimeSlot
+from kvk_team.team_building.domain.plan import (
+    Support,
+    TeamMembership,
+    TeamPlan,
+    TimeSlot,
+)
 from kvk_team.team_building.domain.validation import (
     SortieMetrics,
     ValidatedTeamPlan,
@@ -108,3 +113,66 @@ def test_exporter_shows_self_check_and_warnings_with_time() -> None:
     assert "- 待機: 1人\n- 別枠: 1人\n- 警告: 2件\n" in markdown
     assert "- 23:30: 第4隊が8人未満です: 7人\n" in markdown
     assert "- 第2隊はリーダー不在です\n" in markdown
+
+
+SUPPORTER = Member("ハヤテ", "SKY", Tier.G5, has_vc=True, end_time_minutes=22 * 60)
+LATE_LEADER = Member(
+    "ツバサ",
+    "SKY",
+    Tier.G5,
+    has_vc=True,
+    starts_at_21=False,
+    start_time_minutes=22 * 60,
+)
+OPENING = TimeSlot(21 * 60, 21 * 60 + 30)
+
+
+def _export_with_late_start(notes: tuple[str, ...] = ()) -> str:
+    plan = TeamPlan(
+        teams=(
+            TeamMembership(5, LEADER, (LEADER,)),
+            TeamMembership(6, LATE_LEADER, (LATE_LEADER, SUPPORTER), 22 * 60),
+        ),
+        waiting=(),
+        undecided=(),
+        supports=(Support(SUPPORTER, OPENING, 5),),
+    )
+    report = ValidationReport(
+        issues=(),
+        warnings=(),
+        sortie_metrics=(
+            SortieMetrics(5, OPENING, 2, 500, 2, "山田", support_count=1),
+            SortieMetrics(6, OPENING, 0, 0, 0, None, started=False),
+        ),
+        waiting=(),
+        undecided=(),
+    )
+    return TeamPlanMarkdownExporter(default_rules()).export(
+        ValidatedTeamPlan(plan=plan, report=report, proven_optimal=True, notes=notes)
+    )
+
+
+def test_exporter_shows_sortie_start_and_supports() -> None:
+    """遅れて出撃する隊の出撃開始時刻と、出撃開始前の「応援→第○隊」を示す（FRM-041、FRM-042）。"""
+
+    markdown = _export_with_late_start()
+
+    assert (
+        "## 第6隊 リーダー: ツバサ\n\n出撃開始: 22:00（遅れて出撃）\n所属: 2人\n"
+        in (markdown)
+    )
+    assert "| 21:00 | ハヤテ | 第6隊 | 応援→第5隊 |" in markdown
+    assert "| 21:00 | 第5隊 | 2（応援1） | 500 | 2 | 山田 |" in markdown
+    assert "| 21:00 | 第6隊 | - | - | - | 出撃開始前 |" in markdown
+
+
+def test_exporter_writes_notes_only_when_present() -> None:
+    """回答の扱いの注記を「注記:」の行で示し、注記がなければ節を出さない（OUT-007）。"""
+
+    with_notes = _export_with_late_start(("第7隊 21:00への回答は使いませんでした",))
+    without_notes = _export_with_late_start()
+
+    assert "## 注記\n\n- 注記: 第7隊 21:00への回答は使いませんでした\n" in with_notes
+    assert "## 注記" not in without_notes
+    assert "## 注記" not in _export()
+    assert "## 応援" not in _export()

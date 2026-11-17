@@ -12,6 +12,9 @@ from kvk_team.team_building.adapters.optimization.cp_sat_team_optimizer import (
 from kvk_team.team_building.adapters.output.team_plan_markdown_exporter import (
     TeamPlanMarkdownExporter,
 )
+from kvk_team.team_building.adapters.persistence.json_answers_repository import (
+    JsonAnswersRepository,
+)
 from kvk_team.team_building.adapters.persistence.json_operator_settings_repository import (  # noqa: E501
     JsonOperatorSettingsRepository,
     default_settings_path,
@@ -21,6 +24,7 @@ from kvk_team.team_building.adapters.persistence.json_team_master_repository imp
     load_default_team_master,
 )
 from kvk_team.team_building.application.build_team_plan import BuildTeamPlan
+from kvk_team.team_building.domain.answers import Answer
 from kvk_team.team_building.domain.rules import KvKRules
 from kvk_team.team_building.domain.specification import OperatorSpecification
 from kvk_team.team_building.domain.validation import TeamPlanValidator
@@ -50,6 +54,17 @@ def default_specification(settings_path: Path | None = None) -> OperatorSpecific
 
     path = default_settings_path() if settings_path is None else settings_path
     return JsonOperatorSettingsRepository(path).load()
+
+
+def load_answers(answers_path: Path | None) -> tuple[Answer, ...]:
+    """運用者の回答（`answers.json`、DAT-009）を返す。パスを省略すれば回答なしとする。
+
+    回答は個人名を含むため、イベントのフォルダ（Git管理外）に置いてパスで渡す（DAT-001）。
+    """
+
+    if answers_path is None:
+        return ()
+    return JsonAnswersRepository(answers_path).load()
 
 
 def create_team_builder(rules: KvKRules | None = None) -> TeamBuilder:
