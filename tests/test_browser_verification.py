@@ -199,6 +199,67 @@ def test_documents_tell_every_client_what_not_to_use() -> None:
     assert "`filename`は`tmp/playwright-mcp/`から始めます" in development
 
 
+def test_review_delegation_passes_browser_results_to_read_only_reviewers() -> None:
+    """担当はブラウザを使えないため、主エージェントの確認結果と画面写真を受け取る（ADR 0032）。
+
+    確かめていない経路を確かめたように見せないよう、未実施と伝える手順も委譲の節に置く。
+    """
+
+    def compact(text: str) -> str:
+        return re.sub(r"\s+", "", text)
+
+    review_skill = (
+        PROJECT_ROOT / ".agents" / "skills" / "review-kvk-change" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    delegation = review_skill[
+        review_skill.index("## 独立した観点を委譲する") : review_skill.index(
+            "## 指摘を検証する"
+        )
+    ]
+    development = (PROJECT_ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
+    hook_section = development[
+        development.index("### Claude CodeのHook") : development.index("### 共有スキル")
+    ]
+    agents = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert compact(
+        "読み取り専用のレビュー担当にはブラウザを使わせず、"
+        "主エージェントが確かめた結果と画面写真のパスを渡す"
+    ) in compact(agents)
+    assert compact(
+        "`tests/test_browser_verification.py` | Playwright MCPの版の固定、Claude CodeとCodexの設定の一致、"
+        "出力先と要求先の設定、手順の値と設定の一致、`web/`に外部のURLがないこと、"
+        "拒否するToolが固定した版にあること、`npm ci`がScriptを実行しないこと、"
+        "Dev Containerのブラウザとフォント、レビュー担当へ渡すブラウザの確認結果と画面写真の手順"
+    ) in compact(development)
+    for args in _configured_args():
+        output_dir = _option_value(args, "--output-dir")
+        assert compact(
+            f"Playwright MCPで確かめた幅、操作、結果と、`{output_dir}/`に保存した"
+            "画面写真の絶対パスを担当へ渡す"
+        ) in compact(delegation)
+        assert compact(
+            "ブラウザのToolも使えないため、`web/`の変更では、主エージェントが"
+            f"Playwright MCPで確かめた結果と`{output_dir}/`の画面写真の絶対パスも渡し、"
+            "確かめていない経路は未実施と伝えます"
+        ) in compact(hook_section)
+    for required in (
+        "`web/`の変更では、主エージェントが委譲の前に`DEVELOPMENT.md`の"
+        "「ブラウザでの確認」に従って確かめ（ADR 0032）",
+        "手元のブラウザか実機で代えた経路はその旨を、"
+        "どれでも確かめられなかった経路は理由とともに未実施と伝える",
+        "タッチで結果が変わる操作など、Playwright MCPでは確かめたことにならない経路を"
+        "確認済みとして渡さない",
+        "委譲の指示には、担当がブラウザのToolを使わないことと、"
+        "未実施と伝えた経路と結果を渡さなかった経路について、"
+        "見た目と操作の疑いのうちコードと`tests/web/`で確かめきれないものを"
+        "「未確定の懸念」に返すことを含める",
+    ):
+        assert compact(required) in compact(delegation), required
+    assert compact(
+        "手元のブラウザや実機で代えた経路の伝え方は、`$review-kvk-change`の委譲の節に従います"
+    ) in compact(hook_section)
+
+
 def test_installed_server_matches_the_guarded_tools_and_arguments() -> None:
     """固定した版のToolと、ファイルにつながる引数が、拒否とHookの前提どおりである。
 
